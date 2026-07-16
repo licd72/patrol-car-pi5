@@ -12,7 +12,7 @@ from sensor_msgs.msg import LaserScan
 class YDLidarSimple(Node):
     def __init__(self):
         super().__init__("ydlidar_driver")
-        self.declare_parameter("port", "/dev/ttyUSB0")
+        self.declare_parameter("port", "/dev/rplidar")
         port = self.get_parameter("port").get_parameter_value().string_value
 
         self.scan_pub = self.create_publisher(LaserScan, "/scan", 10)

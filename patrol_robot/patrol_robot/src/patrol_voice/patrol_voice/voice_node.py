@@ -31,6 +31,7 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 from geometry_msgs.msg import Twist
+import requests
 
 
 VOICE_MAP = {
@@ -238,6 +239,18 @@ class PatrolVoice(Node):
 
         self.cmd_vel_pub.publish(twist)
         self.get_logger().info(f"🎤→🚗 {cmd_name}")
+        # HTTP fallback: 调用 web_server 的底盘控制 API
+        try:
+            direction = {"forward":"forward","backward":"backward",
+                         "turn_left":"left","turn_right":"right",
+                         "spin_left":"left","spin_right":"right",
+                         "stop":"stop"}.get(cmd_name, "stop")
+            dur = duration if cmd_name != "stop" else 0.1
+            requests.post("http://127.0.0.1:5000/api/control/move",
+                         json={"direction": direction, "duration": dur, "speed": 0.2},
+                         timeout=1)
+        except Exception:
+            pass
 
         if self._move_timer:
             self._move_timer.cancel()
@@ -259,6 +272,7 @@ class PatrolVoice(Node):
         """自动停止"""
         twist = Twist()
         self.cmd_vel_pub.publish(twist)
+
 
     # ═══════════════════════════════════════════════
     #  播报方法
