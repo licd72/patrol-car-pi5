@@ -1,0 +1,35 @@
+{
+  "1": {
+    "容器Up": true,
+    "8节点全在": true,
+    "/cmd_vel订阅=1": true,
+    "Web:5000": true,
+    "bridge就绪": true,
+    "bridge无异常": true,
+    "bridge在打stat": true,
+    "端到端vx=0.15": false,
+    "Web→bridge通路": true
+  },
+  "2": {
+    "容器Up": true,
+    "8节点全在": true,
+    "/cmd_vel订阅=1": true,
+    "Web:5000": true,
+    "bridge就绪": true,
+    "bridge无异常": true,
+    "bridge在打stat": true,
+    "端到端vx=0.15": true,
+    "Web→bridge通路": true
+  },
+  "3": {
+    "容器Up": true,
+    "8节点全在": true,
+    "/cmd_vel订阅=1": true,
+    "Web:5000": true,
+    "bridge就绪": true,
+    "bridge无异常": true,
+    "bridge在打stat": true,
+    "端到端vx=0.15": true,
+    "Web→bridge通路": true
+  }
+}
