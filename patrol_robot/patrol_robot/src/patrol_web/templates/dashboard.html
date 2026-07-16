@@ -186,9 +186,29 @@
 
   <!-- 抓拍 -->
   <div class="card">
-    <h3>📸 抓拍图片</h3>
+    <h3>📸 最近抓拍 <span style="font-size:11px;color:var(--muted);">(最近20张)</span>
+      <a href="#" onclick="showSnapLog();return false;" style="font-size:12px;color:var(--accent);float:right;">📋 抓拍日志 &gt;</a>
+    </h3>
     <div class="snap-grid" id="snapshots">
       <div style="color:var(--muted);font-size:13px;">加载中...</div>
+    </div>
+  </div>
+
+  <!-- 抓拍日志面板 (默认隐藏) -->
+  <div class="card" id="snap-log-panel" style="display:none;">
+    <h3>📋 抓拍日志 <a href="#" onclick="hideSnapLog();return false;" style="font-size:12px;color:var(--accent);float:right;">← 返回</a></h3>
+    <div style="margin-bottom:8px;">
+      <label style="font-size:12px;color:var(--muted);">日期筛选:</label>
+      <select id="log-date-sel" onchange="loadSnapLog(1)" style="background:#334155;color:#e2e8f0;border:1px solid #475569;padding:2px 6px;border-radius:4px;font-size:12px;">
+        <option value="">全部</option>
+      </select>
+      <span id="log-info" style="font-size:11px;color:var(--muted);margin-left:8px;"></span>
+    </div>
+    <div id="log-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:6px;"></div>
+    <div style="margin-top:8px;text-align:center;font-size:12px;">
+      <button onclick="loadSnapLog(currentLogPage-1)" id="log-prev" style="background:#334155;color:#e2e8f0;border:1px solid #475569;padding:4px 12px;border-radius:4px;cursor:pointer;">上一页</button>
+      <span id="log-page" style="margin:0 10px;color:var(--muted);">1/1</span>
+      <button onclick="loadSnapLog(currentLogPage+1)" id="log-next" style="background:#334155;color:#e2e8f0;border:1px solid #475569;padding:4px 12px;border-radius:4px;cursor:pointer;">下一页</button>
     </div>
   </div>
 

@@ -213,12 +213,12 @@ def api_control_patrol():
 
 @app.route("/api/snapshots")
 def api_snapshots():
-    """抓拍文件列表"""
+    """抓拍文件列表 (首页缩略图, 默认最近20张)"""
     snap_dir = Path(_store["snapshot_dir"])
     if not snap_dir.exists():
         return jsonify([])
-
-    files = sorted(snap_dir.glob("alert_*.jpg"), reverse=True)[:50]
+    limit = request.args.get("limit", 20, type=int)
+    files = sorted(snap_dir.glob("alert_*.jpg"), reverse=True)[:limit]
     return jsonify([
         {
             "filename": f.name,
@@ -227,6 +227,37 @@ def api_snapshots():
         }
         for f in files
     ])
+
+@app.route("/api/snapshots/log")
+def api_snapshots_log():
+    """抓拍日志: 分页查询, 支持日期筛选"""
+    snap_dir = Path(_store["snapshot_dir"])
+    if not snap_dir.exists():
+        return jsonify({"files": [], "total": 0, "page": 1, "pages": 0, "dates": []})
+
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 30, type=int)
+    date_filter = request.args.get("date", "")
+
+    all_files = sorted(snap_dir.glob("alert_*.jpg"), reverse=True)
+    if date_filter:
+        all_files = [f for f in all_files if f.name.startswith("alert_" + date_filter)]
+
+    total = len(all_files)
+    pages = max(1, (total + per_page - 1) // per_page)
+    start = (page - 1) * per_page
+    files = all_files[start:start + per_page]
+
+    dates = sorted(set(f.name[6:14] for f in snap_dir.glob("alert_*.jpg")), reverse=True)
+
+    return jsonify({
+        "files": [{
+            "filename": f.name,
+            "time": datetime.fromtimestamp(f.stat().st_mtime).isoformat(),
+            "size_kb": round(f.stat().st_size / 1024, 1),
+        } for f in files],
+        "total": total, "page": page, "pages": pages, "dates": dates,
+    })
 
 
 @app.route("/snapshots/<filename>")
