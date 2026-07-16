@@ -1,0 +1,14 @@
+# Yahboomcar 串口设备持久化 udev 规则 (v2 - ID_PATH绑定)
+# ID_PATH 基于 USB 物理拓扑，重启稳定（只要不换 USB 口）
+
+# YDLIDAR X3 (CP2102，序列号唯一)
+SUBSYSTEM=="tty", ENV{ID_SERIAL}=="Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001", SYMLINK+="rplidar", MODE="0777"
+
+# 语音模块 YB-MAE01 (CH340, 挂在 xhci-hcd.0 控制器)
+SUBSYSTEM=="tty", ENV{ID_PATH}=="platform-xhci-hcd.0-usb-0:2:1.0", SYMLINK+="myspeech", MODE="0666"
+
+# ROS 扩展板 STM32 (CH340, 挂在 xhci-hcd.1 第3口)
+SUBSYSTEM=="tty", ENV{ID_PATH}=="platform-xhci-hcd.1-usb-0:1.3:1.0", SYMLINK+="myserial", MODE="0666"
+
+# GPS/备用 (CH340, 挂在 xhci-hcd.1 第2口)
+SUBSYSTEM=="tty", ENV{ID_PATH}=="platform-xhci-hcd.1-usb-0:2:1.0", SYMLINK+="voice", MODE="0666"
