@@ -201,9 +201,10 @@ class PatrolStateMachine(Node):
         """导航目标已接受"""
         goal_handle = future.result()
         if not goal_handle.accepted:
-            # Nav2 不可用时静默 IDLE (不循环重试)
+            # Nav2 不可用时静默 IDLE (不打断 TRACKING)
             if getattr(self, '_nav_unavailable', False):
-                self._set_state(PatrolState.IDLE)
+                if self.state != PatrolState.TRACKING:
+                    self._set_state(PatrolState.IDLE)
                 return
             self.get_logger().warn("导航目标被拒绝, 跳到下一个预置点")
             if self.state == PatrolState.NAVIGATING:
@@ -297,8 +298,8 @@ class PatrolStateMachine(Node):
                 if len(msg.detections) > 0:
                     self.track_detect_frames += 1
 
-            elif self.state in (PatrolState.SCANNING, PatrolState.NAVIGATING):
-                # 处于巡逻中, 检测到异常 → 开始跟踪
+            elif self.state in (PatrolState.IDLE, PatrolState.SCANNING, PatrolState.NAVIGATING):
+                # 处于待机/巡逻中, 检测到异常 → 开始跟踪
                 if len(msg.detections) > 0:
                     self._start_tracking()
 
