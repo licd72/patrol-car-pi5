@@ -148,7 +148,7 @@ class PatrolStateMachine(Node):
     def _main_loop(self):
         """10Hz 主循环, 执行当前状态的动作"""
         with self._lock:
-            if self.state == PatrolState.IDLE:
+            if self.state == PatrolState.IDLE and not getattr(self, '_nav_unavailable', False):
                 self._enter_navigating()
 
     def _set_state(self, new_state: PatrolState):
@@ -185,9 +185,10 @@ class PatrolStateMachine(Node):
         )
 
         # 等待 action server
-        if not self.nav_client.wait_for_server(timeout_sec=5.0):
-            self.get_logger().error("Nav2 不可用, 5 秒后重试")
-            self._change_state_later(PatrolState.NAVIGATING, 5.0)
+        if not self.nav_client.wait_for_server(timeout_sec=3.0):
+            self.get_logger().warn("Nav2 不可用, 降级为纯检测模式 (无导航)")
+            self._nav_unavailable = True
+            self._set_state(PatrolState.IDLE)
             return
 
         # 发送导航目标 (异步)
@@ -200,8 +201,11 @@ class PatrolStateMachine(Node):
         """导航目标已接受"""
         goal_handle = future.result()
         if not goal_handle.accepted:
+            # Nav2 不可用时静默 IDLE (不循环重试)
+            if getattr(self, '_nav_unavailable', False):
+                self._set_state(PatrolState.IDLE)
+                return
             self.get_logger().warn("导航目标被拒绝, 跳到下一个预置点")
-            # 仅当仍在导航状态时才推进 (避免打断 TRACKING)
             if self.state == PatrolState.NAVIGATING:
                 self._advance_waypoint()
             return
