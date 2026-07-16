@@ -236,6 +236,85 @@ def serve_snapshot(filename: str):
     return send_from_directory(str(snap_dir), filename)
 
 
+# ── 巡逻路线编辑 API ──
+
+import yaml as _yaml
+from pathlib import Path as _Path
+
+ROUTES_FILE = str(_Path(__file__).parent.parent.parent.parent.parent / "config" / "patrol_routes.yaml")
+
+def _load_routes():
+    if not _Path(ROUTES_FILE).exists():
+        return {"routes": {}}
+    with open(ROUTES_FILE, "r", encoding="utf-8") as f:
+        return _yaml.safe_load(f) or {"routes": {}}
+
+def _save_routes(data):
+    with open(ROUTES_FILE, "w", encoding="utf-8") as f:
+        _yaml.dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+
+
+@app.route("/api/routes")
+def api_routes():
+    data = _load_routes()
+    return jsonify(data)
+
+@app.route("/api/routes/waypoint", methods=["POST"])
+def api_add_waypoint():
+    req = request.get_json() or {}
+    route_name = req.get("route", "campus_1f")
+    data = _load_routes()
+    routes = data.setdefault("routes", {})
+    route = routes.setdefault(route_name, {"description": "", "waypoints": []})
+    wp = {
+        "name": req.get("name", "P" + str(len(route["waypoints"]) + 1)),
+        "x": float(req.get("x", 0)),
+        "y": float(req.get("y", 0)),
+        "yaw": float(req.get("yaw", 0)),
+        "dwell": int(req.get("dwell", 3)),
+    }
+    route["waypoints"].append(wp)
+    _save_routes(data)
+    return jsonify({"ok": True, "waypoint": wp})
+
+@app.route("/api/routes/waypoint/<int:idx>", methods=["PUT", "DELETE"])
+def api_edit_waypoint(idx):
+    route_name = request.args.get("route", "campus_1f")
+    data = _load_routes()
+    route = data.get("routes", {}).get(route_name, {})
+    wps = route.get("waypoints", [])
+    if idx < 0 or idx >= len(wps):
+        return jsonify({"error": "index out of range"}), 400
+    if request.method == "DELETE":
+        removed = wps.pop(idx)
+        _save_routes(data)
+        return jsonify({"ok": True, "removed": removed})
+    else:
+        req = request.get_json() or {}
+        wp = wps[idx]
+        if "name" in req: wp["name"] = req["name"]
+        if "x" in req: wp["x"] = float(req["x"])
+        if "y" in req: wp["y"] = float(req["y"])
+        if "yaw" in req: wp["yaw"] = float(req["yaw"])
+        if "dwell" in req: wp["dwell"] = int(req["dwell"])
+        _save_routes(data)
+        return jsonify({"ok": True, "waypoint": wp})
+
+@app.route("/api/routes/record_position", methods=["POST"])
+def api_record_position():
+    req = request.get_json() or {}
+    route_name = req.get("route", "campus_1f")
+    name = req.get("name", "P" + str(int(__import__("time").time()) % 10000))
+    x = float(req.get("x", 0))
+    y = float(req.get("y", 0))
+    yaw = float(req.get("yaw", 0))
+    data = _load_routes()
+    route = data.setdefault("routes", {}).setdefault(route_name, {"description": "", "waypoints": []})
+    route["waypoints"].append({"name": name, "x": x, "y": y, "yaw": yaw, "dwell": 3})
+    _save_routes(data)
+    return jsonify({"ok": True, "name": name, "x": x, "y": y})
+
+
 # ── MJPEG 实时视频流 ──
 import cv2, numpy as np, threading
 _store["_latest_frame"] = None
