@@ -217,7 +217,7 @@ def api_snapshots():
     snap_dir = Path(_store["snapshot_dir"])
     if not snap_dir.exists():
         return jsonify([])
-    limit = request.args.get("limit", 20, type=int)
+    limit = request.args.get("limit", 10, type=int)
     files = sorted(snap_dir.glob("alert_*.jpg"), reverse=True)[:limit]
     return jsonify([
         {
@@ -265,6 +265,34 @@ def serve_snapshot(filename: str):
     """提供抓拍图片"""
     snap_dir = Path(_store["snapshot_dir"])
     return send_from_directory(str(snap_dir), filename)
+
+@app.route("/api/snapshots/<filename>", methods=["DELETE"])
+def delete_snapshot(filename: str):
+    """删除单张抓拍"""
+    snap_dir = Path(_store["snapshot_dir"])
+    filepath = snap_dir / filename
+    if filepath.exists():
+        filepath.unlink()
+        return jsonify({"ok": True, "deleted": filename})
+    return jsonify({"error": "not found"}), 404
+
+@app.route("/api/snapshots/delete_all", methods=["POST"])
+def delete_all_snapshots():
+    """批量删除: 全部 或 按日期"""
+    snap_dir = Path(_store["snapshot_dir"])
+    if not snap_dir.exists():
+        return jsonify({"deleted": 0})
+    req = request.get_json() or {}
+    date_filter = req.get("date", "")
+    if date_filter:
+        files = [f for f in snap_dir.glob("alert_*.jpg") if f.name.startswith("alert_" + date_filter)]
+    else:
+        files = list(snap_dir.glob("alert_*.jpg"))
+    count = 0
+    for f in files:
+        f.unlink()
+        count += 1
+    return jsonify({"deleted": count})
 
 
 # ── 巡逻路线编辑 API ──

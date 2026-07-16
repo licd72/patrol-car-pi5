@@ -186,7 +186,7 @@
 
   <!-- 抓拍 -->
   <div class="card">
-    <h3>📸 最近抓拍 <span style="font-size:11px;color:var(--muted);">(最近20张)</span>
+    <h3>📸 最近抓拍 <span style="font-size:11px;color:var(--muted);">(最近10张)</span>
       <a href="#" onclick="showSnapLog();return false;" style="font-size:12px;color:var(--accent);float:right;">📋 抓拍日志 &gt;</a>
     </h3>
     <div class="snap-grid" id="snapshots">
@@ -203,6 +203,7 @@
         <option value="">全部</option>
       </select>
       <span id="log-info" style="font-size:11px;color:var(--muted);margin-left:8px;"></span>
+      <button onclick="deleteAllSnaps()" style="margin-left:12px;background:#ef4444;color:#fff;border:none;padding:2px 10px;border-radius:4px;font-size:11px;cursor:pointer;">全部删除</button>
     </div>
     <div id="log-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:6px;"></div>
     <div style="margin-top:8px;text-align:center;font-size:12px;">
@@ -301,6 +302,60 @@ function renderSnapshots(snaps) {
     seen_snaps.add(s.filename);
     return `<img src="/snapshots/${s.filename}" alt="${s.time}" title="${s.time} (${s.size_kb}KB)" loading="lazy">`;
   }).join('');
+}
+
+// ── 抓拍日志 ──
+let currentLogPage = 1;
+async function loadSnapLog(page) {
+  const date = document.getElementById('log-date-sel').value;
+  const r = await fetch('/api/snapshots/log?page=' + page + '&per_page=30&date=' + date);
+  const data = await r.json();
+  currentLogPage = data.page;
+  const sel = document.getElementById('log-date-sel');
+  if (sel.options.length <= 1) {
+    data.dates.forEach(function(d) {
+      var opt = document.createElement('option');
+      opt.value = d; opt.textContent = d.slice(0,4) + '-' + d.slice(4,6) + '-' + d.slice(6,8);
+      sel.appendChild(opt);
+    });
+  }
+  var grid = document.getElementById('log-grid');
+  if (!data.files.length) {
+    grid.innerHTML = '<div style="color:var(--muted);font-size:13px;">暂无记录</div>';
+  } else {
+    grid.innerHTML = data.files.map(function(f) {
+      return '<div style="text-align:center;position:relative;"><img src="/snapshots/' + f.filename + '" style="width:100%;height:70px;object-fit:cover;border-radius:4px;cursor:pointer;" onclick="window.open(\'/snapshots/' + f.filename + '\')" title="' + f.time + '" loading="lazy"><span onclick="event.stopPropagation();delSnapshot(\'' + f.filename + '\');" style="position:absolute;top:2px;right:2px;background:rgba(239,68,68,0.8);color:#fff;font-size:10px;padding:1px 4px;border-radius:3px;cursor:pointer;" title="删除">X</span><div style="font-size:10px;color:var(--muted);">' + f.time.slice(11,19) + '</div></div>';
+    }).join('');
+  }
+  document.getElementById('log-page').textContent = data.page + '/' + data.pages;
+  document.getElementById('log-info').textContent = '共 ' + data.total + ' 张';
+  document.getElementById('log-prev').disabled = page <= 1;
+  document.getElementById('log-next').disabled = page >= data.pages;
+}
+function showSnapLog() {
+  document.getElementById('snap-log-panel').style.display = '';
+  loadSnapLog(1);
+}
+function hideSnapLog() {
+  document.getElementById('snap-log-panel').style.display = 'none';
+}
+async function deleteAllSnaps() {
+  var date = document.getElementById('log-date-sel').value;
+  var msg = date ? '删除 ' + date + ' 的所有抓拍?' : '删除全部抓拍?';
+  if (!confirm(msg)) return;
+  if (!confirm('再次确认: 不可恢复!')) return;
+  var r = await fetch('/api/snapshots/delete_all', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({date: date})
+  });
+  var d = await r.json();
+  alert('已删除 ' + d.deleted + ' 张');
+  loadSnapLog(1);
+}
+async function delSnapshot(filename) {
+  if (!confirm('删除 ' + filename + ' ?')) return;
+  await fetch('/api/snapshots/' + filename, { method: 'DELETE' });
+  loadSnapLog(currentLogPage);
 }
 
 // ── 小车控制 ──
