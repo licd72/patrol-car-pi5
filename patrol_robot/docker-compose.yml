@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  patrol:
+    build: .
+    image: patrol-robot:foxy
+    container_name: patrol_car
+    network_mode: host
+    privileged: true
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - /home/pi/patrol_robot:/home/pi/patrol_robot
+      - /dev:/dev
+    working_dir: /home/pi/patrol_robot/patrol_robot
+    command: bash /home/pi/patrol_robot/scripts/container_init.sh
+    restart: unless-stopped

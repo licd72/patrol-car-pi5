@@ -1,0 +1,34 @@
+# ==============================================================
+# 预设巡逻路线
+# ==============================================================
+# 格式: 每行为一个预置点 (名称, x, y, yaw, 停留时间秒)
+# x/y 为地图坐标 (米), yaw 为朝向 (弧度, 0=东, 1.57=北)
+#
+# 使用前请先在真实环境中建图, 记录每个预置点的坐标
+
+routes:
+  # ── 园区一楼巡逻路线 (示例) ──
+  campus_1f:
+    description: "园区一楼标准巡逻路线"
+    waypoints:
+      - {name: "大门入口",     x: 0.0,  y: 0.0,   yaw: 0.0,  dwell: 5}
+      - {name: "大厅中央",     x: 5.0,  y: 0.0,   yaw: 1.57, dwell: 3}
+      - {name: "走廊拐角",     x: 10.0, y: 0.0,   yaw: 3.14, dwell: 3}
+      - {name: "后门出口",     x: 10.0, y: -5.0,  yaw: -1.57,dwell: 5}
+      - {name: "侧廊",         x: 5.0,  y: -5.0,  yaw: 0.0,  dwell: 3}
+      - {name: "返回大门",     x: 0.0,  y: 0.0,   yaw: 0.0,  dwell: 0}
+
+  # ── 园区外围巡逻路线 ──
+  campus_outside:
+    description: "园区外围巡逻路线"
+    waypoints:
+      - {name: "大门",         x: 0.0,   y: 0.0,   yaw: 0.0,  dwell: 10}
+      - {name: "东围墙",       x: 20.0,  y: 0.0,   yaw: 1.57, dwell: 5}
+      - {name: "东北角",       x: 20.0,  y: 15.0,  yaw: 3.14, dwell: 5}
+      - {name: "西北角",       x: 0.0,   y: 15.0,  yaw: -1.57,dwell: 5}
+      - {name: "返回大门",     x: 0.0,   y: 0.0,   yaw: 0.0,  dwell: 0}
+
+# ── 巡逻策略 ──
+patrol_mode: "sequential"   # sequential (顺序) | random (随机) | adaptive (自适应)
+loop_count: 0               # 0 = 无限循环
+rest_at_start: false        # 是否在起点等待指令

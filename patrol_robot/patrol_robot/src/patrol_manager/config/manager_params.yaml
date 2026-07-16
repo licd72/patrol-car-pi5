@@ -1,0 +1,26 @@
+# patrol_manager 参数配置
+
+patrol_state_machine:
+  ros__parameters:
+    # 巡逻路线文件路径
+    routes_file: "config/patrol_routes.yaml"
+
+    # 巡逻模式: sequential (顺序) | random (随机)
+    patrol_mode: "sequential"
+
+    # 循环次数: 0 = 无限循环
+    loop_count: 0
+
+    # ── 跟踪确认 ──
+    track_duration: 10.0       # 跟踪 N 秒
+    confirm_ratio: 0.6         # N% 的帧命中才确认报警
+
+    # ── 报警 ──
+    alert_cooldown: 30.0       # 同一地点两次报警最短间隔 (秒)
+
+    # ── 扫描 ──
+    scan_rotation_speed: 0.5   # 原地旋转角速度 (rad/s)
+    scan_duration: 15.0        # 扫描总时长 (秒)
+
+    # ── 导航 ──
+    waypoint_tolerance: 0.3    # 到达预置点容差 (米)

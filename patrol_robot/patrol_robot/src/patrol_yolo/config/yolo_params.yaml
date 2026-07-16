@@ -1,0 +1,19 @@
+# patrol_yolo 参数配置 (RPi5 优化)
+
+patrol_yolo:
+  ros__parameters:
+    # ── 模型配置 ──
+    model_path: "models/yolov5n.onnx"   # ONNX 模型路径 (推荐 YOLOv5n)
+    confidence: 0.5                      # 置信度阈值 (0.3~0.7, 越高误报越少)
+    input_width: 640                     # 模型输入尺寸
+    input_height: 640
+
+    # ── 性能调优 (RPi5 专属) ──
+    detect_interval: 0.5                 # 检测间隔秒数 (2 FPS, 巡逻够用)
+                                         # 降低值 → 更高 FPS 但 CPU 占用大
+                                         # 提高值 → 更省 CPU 但可能漏检
+    publish_debug: false                 # 是否发布调试图像 (增加带宽, 开发时开)
+
+    # ── 检测目标 ──
+    # COCO 类别: 0=person, 2=car, 3=motorcycle, 5=bus, 7=truck
+    target_classes: [0, 2, 3]

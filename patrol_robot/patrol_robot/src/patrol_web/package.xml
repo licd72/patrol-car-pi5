@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>patrol_web</name>
+  <version>0.1.0</version>
+  <description>巡逻小车 Web 监控面板 — Flask + 实时仪表盘</description>
+  <maintainer email="licd72@example.com">lichengdong</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <depend>rclpy</depend>
+  <depend>std_msgs</depend>
+  <depend>vision_msgs</depend>
+
+  <exec_depend>python3-flask</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

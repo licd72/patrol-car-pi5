@@ -1,0 +1,51 @@
+# ==============================================================
+# 报警规则配置
+# ==============================================================
+
+# ── 检测到异常后行为 ──
+alert:
+  # 跟踪时间: 检测到目标后持续跟踪 N 秒, 确认异常才报警
+  track_duration: 10.0       # 秒
+
+  # 确认条件: 跟踪期间至少 N% 的帧检测到目标
+  confirm_ratio: 0.6         # 60%
+
+  # 冷却时间: 同一位置两次报警的最短间隔
+  cooldown: 30.0             # 秒
+
+# ── 报警通道 ──
+channels:
+
+  # 本地声光报警 (GPIO)
+  local:
+    enabled: true
+    buzzer_pin: 18           # 蜂鸣器 GPIO
+    led_pin: 23              # LED 警示灯 GPIO
+    pattern: "flash"         # flash (闪烁) | steady (常亮) | siren (警笛)
+
+  # 钉钉机器人推送
+  dingtalk:
+    enabled: true
+    webhook_url: "https://oapi.dingtalk.com/robot/send?access_token=YOUR_TOKEN"
+    msg_type: "actionCard"   # actionCard (卡片) | text (纯文本) | markdown
+    mention_all: false       # @所有人
+
+  # 飞书机器人推送 (备用)
+  feishu:
+    enabled: false
+    webhook_url: ""
+
+  # 邮件推送 (备用)
+  email:
+    enabled: false
+    smtp_server: ""
+    recipients: []
+
+# ── 抓拍存证 ──
+snapshot:
+  enabled: true
+  save_path: "/home/pi/patrol_robot/snapshots/"
+  format: "jpg"             # jpg | png
+  quality: 85               # JPEG 质量 (1-100)
+  max_per_alert: 20          # 每次报警最多保存几张
+  retention_days: 30        # 自动清理 N 天前的图片
