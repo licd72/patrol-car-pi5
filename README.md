@@ -27,63 +27,47 @@
 └──────────────────────────────────────────────────────────┘
 ```
 
-**关键简化**: 
-- 去掉 `Mcnamu_driver_X3` 和 `base_node_X3`（ROS2 节点不执行运动指令）
-- `web_server` 直接通过 `Rosmaster_Lib.set_car_motion()` 控制 STM32
-- `patrol_voice` 通过 HTTP 调用 `web_server` API 控制底盘（避免串口竞争）
+---
+
+## 🐛 修复的所有问题 (8项)
+
+| # | 问题 | 根因 | 修复 |
+|:--|:-----|:-----|:-----|
+| 1 | 抓拍为空 | 报警确认后才保存，人已走 | 环形缓冲区 dequeue(maxlen=60) |
+| 2 | TRACKING 死循环 | timer 堆积 + Nav2 回调打断 | timer引用管理 + 状态保护 |
+| 3 | 摄像头占用 | orbbec 容器抢设备 | fuser -k + _cam_check.py |
+| 4 | 容器重启 | set -e 遇错退出 | 容错处理 |
+| 5 | 时区错误 | 容器 UTC | TZ=Asia/Shanghai |
+| 6 | 底盘不响应 | driver_node 不执行运动指令 | web_server Rosmaster_Lib 直驱 |
+| 7 | 车轮失控 | STM32 不自动停止 | 0.2s watchdog |
+| 8 | 重启后异常 | USB 枚举变化 | **udev 规则改用 ID_PATH** |
 
 ---
 
-## 🐛 本次调试修复的所有问题 (8项)
+## ⚠️ 核心教训：设备路径问题 → 先查 udev，不要改程序！
 
-### 1. 🔴 抓拍画面为空
-- **根因**: YOLO检测到人→立即发图→alert_dispatcher丢弃→10秒确认后保存→人已走
-- **修复**: 环形缓冲区 `deque(maxlen=60)`，始终缓存，报警触发时回写
-- **文件**: `alert_dispatcher.py`
+**问题 6 和 8 其实有同一个根因——设备路径不对**。但花了大量时间改代码（换 Rosmaster 直驱、加 HTTP fallback），其实只需要：
 
-### 2. 🔴 状态机 TRACKING 死循环
-- **根因**: ① timer堆积(create_timer不cancel) ② Nav2回调在TRACKING中触发_advance_waypoint ③ _change_state_later的5秒timer打断TRACKING
-- **修复**: timer引用管理 + 导航回调状态检查 + _change_state_later TRACKING保护
-- **文件**: `patrol_state_machine.py`
+```bash
+# 检查符号链接
+ls -la /dev/rplidar /dev/myserial /dev/myspeech
 
-### 3. 🟡 摄像头被占用
-- **根因**: orbbec_ros_foxy容器抢占/dev/video0
-- **修复**: fuser -k释放 + _cam_check.py验证
-- **文件**: `container_init.sh`
+# 更新 udev 规则
+sudo nano /etc/udev/rules.d/99-yahboomcar.rules
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
 
-### 4. 🟡 容器反复重启
-- **根因**: set -e遇错退出 + yahboomcar_ws路径不存在
-- **修复**: 去掉set -e，容错处理
-- **文件**: `container_init.sh`
-
-### 5. 🟡 时区错误
-- **根因**: 容器默认UTC
-- **修复**: TZ=Asia/Shanghai
-- **文件**: `docker-compose.yml`, `container_init.sh`, `alert_dispatcher.py`
-
-### 6. 🔴 底盘不响应运动指令
-- **根因**: Mcnamu_driver_X3只读传感器不执行运动控制
-- **修复**: web_server直接用Rosmaster_Lib.set_car_motion()控制底盘
-- **文件**: `web_server.py`, `container_init.sh`
-
-### 7. 🔴 车轮失控持续转动
-- **根因**: STM32固件持续执行最后收到的非零指令
-- **修复**: watchdog每0.2秒发零速度，0.8秒无新指令自动归零
-- **文件**: `web_server.py`
-
-### 8. 🟡 树莓派重启后语音失效 / USB枚举变化
-- **根因**: USB设备枚举顺序变了，ydlidar_driver硬编码的/dev/ttyUSB0抢了语音模块串口
-- **修复**: ydlidar改用 `/dev/rplidar`（按设备属性绑定的符号链接）
-- **文件**: `ydlidar_driver.py`
+详见 [`docs/debug-rules.md`](docs/debug-rules.md) —— **下次调试前先看这个**。
 
 ---
 
-## 📦 核心经验教训
+## 📦 udev 设备映射 (v2 — ID_PATH 绑定)
 
-1. **不要假设 ROS2 节点行为** — 节点在线 ≠ 功能正常，最终绕过 driver_node/base_node 直接用 Rosmaster_Lib
-2. **timer 管理是状态机头号杀手** — 不 cancel 必定堆积
-3. **STM32 固件不会自动停止** — 必须持续发零速度
-4. **环境变量是隐藏炸弹** — ROBOT_TYPE 未设导致参数全错
-5. **2>/dev/null 是调试天敌** — 屏蔽了无数错误
-6. **不要硬编码 /dev/ttyUSBx** — 树莓派重启后枚举顺序会变，用 udev 符号链接 `/dev/rplidar` `/dev/myserial` 等
-7. **ROS2 串口节点与直驱不能共存** — web_server 和 voice_node 都需串口时，voice 通过 HTTP 调 web API 避免竞争
+| 符号链接 | 设备 | 绑定方式 |
+|:-----|:-----|:-----|
+| `/dev/rplidar` | YDLIDAR X3 (CP2102) | ID_SERIAL (唯一) |
+| `/dev/myserial` | STM32 扩展板 (CH340) | ID_PATH (物理拓扑) |
+| `/dev/myspeech` | 语音模块 (CH340) | ID_PATH |
+| `/dev/voice` | GPS/备用 (CH340) | ID_PATH |
+
+重启稳定，前提：**不换 USB 插口**。
