@@ -41,6 +41,22 @@ from geometry_msgs.msg import Twist
 
 from flask import Flask, render_template, jsonify, send_from_directory, request, Response
 
+# ── 底盘直接控制 (绕过 driver_node) ──
+import sys as _sys
+_sys.path.insert(0, '/home/pi/pi/software')
+from Rosmaster_Lib import Rosmaster as _Rosmaster
+_chassis = None
+
+def _get_chassis():
+    global _chassis
+    if _chassis is None:
+        try:
+            _chassis = _Rosmaster(com="/dev/myserial", debug=False)
+            _chassis.set_car_type(1)  # X3
+        except Exception:
+            _chassis = False
+    return _chassis if _chassis and _chassis is not False else None
+
 
 # ── Flask 应用 ──
 app = Flask(__name__)
@@ -119,6 +135,7 @@ def api_control_move():
     _store["_speed"] = speed  # 持久化速度
 
     pub = _store.get("cmd_vel_pub")
+    pub_raw = _store.get("vel_raw_pub")
     if pub is None:
         return jsonify({"error": "publisher not ready"}), 503
 
@@ -141,11 +158,27 @@ def api_control_move():
         twist.linear.y = -_speed
 
     pub.publish(twist)
+    if pub_raw:
+        pub_raw.publish(twist)
+    # 直接通过 Rosmaster 控制底盘 (绕过 driver_node)
+    car = _get_chassis()
+    if car:
+        car.set_car_motion(twist.linear.x, twist.linear.y, twist.angular.z)
+    _store["_last_cmd_time"] = time.time()
+    _store["_cmd_active"] = True
 
     def _stop():
-        import time
-        time.sleep(duration)
-        pub.publish(Twist())
+        import time as _t
+        _t.sleep(duration)
+        zero = Twist()
+        pub.publish(zero)
+        if pub_raw:
+            pub_raw.publish(zero)
+        car2 = _get_chassis()
+        if car2:
+            car2.set_car_motion(0, 0, 0)
+        _store["_cmd_active"] = False
+        _store["_last_cmd_time"] = _t.time()
     threading.Thread(target=_stop, daemon=True).start()
 
     return jsonify({"ok": True, "direction": direction, "speed": speed, "duration": duration})
@@ -262,7 +295,9 @@ class PatrolWebNode(Node):
 
         # ── 控制发布器 ──
         self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
+        self.vel_raw_pub = self.create_publisher(Twist, "/vel_raw", 10)
         _store["cmd_vel_pub"] = self.cmd_vel_pub
+        _store["vel_raw_pub"] = self.vel_raw_pub
         _store["patrol_state_pub"] = self.create_publisher(String, "/patrol/state_control", 10)
 
         self.get_logger().info("Web 面板数据采集启动")
@@ -345,6 +380,34 @@ def main(args=None):
         daemon=True,
     )
     flask_thread.start()
+
+    # ── 安全 Watchdog: 持续发零速度，防止 STM32 残留指令 ──
+    # 原理: base_node_X3 不自动超时，需要持续收到零速度来覆盖旧指令
+    _store["_last_cmd_time"] = 0.0
+    _store["_cmd_active"] = False
+
+    def _cmd_watchdog():
+        import time as _time
+        from geometry_msgs.msg import Twist as _Twist
+        pub = _store.get("cmd_vel_pub")
+        while pub is not None:
+            _time.sleep(0.2)
+            now = _time.time()
+            active = _store.get("_cmd_active", False)
+            last = _store.get("_last_cmd_time", 0)
+            # 超过 0.8 秒没有新命令 → 强制归零
+            if not active or now - last > 0.8:
+                zero = _Twist()
+                pub.publish(zero)
+                pub_raw = _store.get("vel_raw_pub")
+                if pub_raw:
+                    pub_raw.publish(zero)
+                car3 = _get_chassis()
+                if car3:
+                    car3.set_car_motion(0, 0, 0)
+                _store["_cmd_active"] = False
+
+    threading.Thread(target=_cmd_watchdog, daemon=True).start()
 
     ros_node.get_logger().info("🌐 Web 面板: http://0.0.0.0:5000")
 

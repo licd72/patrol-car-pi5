@@ -9,8 +9,11 @@ services:
     privileged: true
     environment:
       - TZ=Asia/Shanghai
+      - ROBOT_TYPE=x3
+      - RPLIDAR_TYPE=4ROS
     volumes:
       - /home/pi/patrol_robot:/home/pi/patrol_robot
+      - /home/pi/yahboomcar_ws:/home/pi/yahboomcar_ws
       - /dev:/dev
     working_dir: /home/pi/patrol_robot/patrol_robot
     command: bash /home/pi/patrol_robot/scripts/container_init.sh

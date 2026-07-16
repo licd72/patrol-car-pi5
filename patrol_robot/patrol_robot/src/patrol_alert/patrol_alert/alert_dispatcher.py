@@ -19,7 +19,8 @@ import time
 import json
 import threading
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+CST = timezone(timedelta(hours=8))
 from pathlib import Path
 
 import cv2

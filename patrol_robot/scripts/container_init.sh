@@ -1,12 +1,14 @@
 #!/bin/bash
 export TZ='Asia/Shanghai'
-echo "=== 巡逻系统启动 $(date) ==="
+export ROBOT_TYPE=x3
+export RPLIDAR_TYPE=4ROS
+echo "=== 巡逻系统启动 $(date) === (ROBOT_TYPE=$ROBOT_TYPE)"
 
 source /opt/ros/foxy/setup.bash
 # 清除旧的 pyc 缓存
 rm -f /root/yahboomcar_ros2_ws/yahboomcar_ws/install/yahboomcar_bringup/lib/python3.8/site-packages/yahboomcar_bringup/__pycache__/Mcnamu_driver_X3.cpython-38.pyc 2>/dev/null
 source /home/pi/patrol_robot/patrol_robot/install/setup.bash
-source /home/pi/yahboomcar_ws/install/setup.bash 2>/dev/null || true
+source /home/pi/yahboomcar_ws/install/setup.bash 2>/dev/null || true  # 底盘驱动依赖
 
 # ── 设备初始化 ──
 echo "[0] 释放摄像头设备..."
@@ -24,8 +26,9 @@ for i in $(seq 1 5); do
 done
 
 # X3 麦轮驱动
-echo "[1] 底盘驱动..."
-ros2 run yahboomcar_bringup Mcnamu_driver_X3 --ros-args -p serial_port:=/dev/myserial 2>/dev/null &
+echo "[1] 底盘驱动 (ROBOT_TYPE=$ROBOT_TYPE)..."
+sleep 3
+sleep 1
 sleep 1 || true
 
 echo "[2] 相机..."

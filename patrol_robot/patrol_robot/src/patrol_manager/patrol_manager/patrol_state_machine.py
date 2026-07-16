@@ -201,7 +201,9 @@ class PatrolStateMachine(Node):
         goal_handle = future.result()
         if not goal_handle.accepted:
             self.get_logger().warn("导航目标被拒绝, 跳到下一个预置点")
-            self._advance_waypoint()
+            # 仅当仍在导航状态时才推进 (避免打断 TRACKING)
+            if self.state == PatrolState.NAVIGATING:
+                self._advance_waypoint()
             return
 
         self.get_logger().info("导航目标已接受, 行进中...")
@@ -220,11 +222,12 @@ class PatrolStateMachine(Node):
         result = future.result()
         if result.status == 4:  # SUCCEEDED
             self.get_logger().info(f"到达预置点 [{self.waypoints[self.current_waypoint_idx]['name']}]")
-            # 进入扫描
-            self._change_state_later(PatrolState.SCANNING, 0.0)
+            if self.state == PatrolState.NAVIGATING:
+                self._change_state_later(PatrolState.SCANNING, 0.0)
         else:
             self.get_logger().warn(f"导航失败 (status={result.status}), 跳到下一个")
-            self._advance_waypoint()
+            if self.state == PatrolState.NAVIGATING:
+                self._advance_waypoint()
 
     # ═══════════════════════════════════════════════
     #  SCANNING — 到达后 360° 扫描
@@ -296,8 +299,11 @@ class PatrolStateMachine(Node):
                     self._start_tracking()
 
     def _start_tracking(self):
-        """开始跟踪确认窗口 (带冷却: 5秒内不重复启动)"""
+        """开始跟踪确认窗口 (跟踪中不重复启动)"""
         now = time.time()
+        # 已在跟踪中: 不重启 (防止 timer 被无限取消)
+        if self.state == PatrolState.TRACKING:
+            return
         # 冷却检查: 距上次跟踪结束不到 5 秒则跳过
         if hasattr(self, '_last_track_end') and now - self._last_track_end < 5.0:
             return
@@ -307,10 +313,12 @@ class PatrolStateMachine(Node):
         self.track_detect_frames = 0
         self.get_logger().info(f"检测到异常目标, 开始跟踪 ({self.track_duration}s)")
 
-        # 取消旧 timer, 创建新 timer (防止堆积)
+        # 创建一次性 timer (oneshot), 10秒后评估
         if self._track_timer is not None:
             self._track_timer.cancel()
-        self._track_timer = self.create_timer(self.track_duration, self._evaluate_tracking)
+        self._track_timer = self.create_timer(
+            self.track_duration, self._evaluate_tracking
+        )
 
     def _evaluate_tracking(self):
         """跟踪窗口结束, 评估是否触发报警"""
@@ -381,8 +389,11 @@ class PatrolStateMachine(Node):
         self._set_state(PatrolState.NAVIGATING)
 
     def _change_state_later(self, state: PatrolState, delay: float, callback=None):
-        """延迟切换状态 (非阻塞, 取消旧 timer 防堆积)"""
+        """延迟切换状态 (非阻塞, 取消旧 timer 防堆积, TRACKING 中不打断)"""
         def _switch():
+            # 跟踪中不切换状态 (防止打断报警确认)
+            if self.state == PatrolState.TRACKING:
+                return
             self._set_state(state)
             if state == PatrolState.SCANNING:
                 self._enter_scanning()
