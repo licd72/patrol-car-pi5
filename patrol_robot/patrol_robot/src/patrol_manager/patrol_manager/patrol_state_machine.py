@@ -138,6 +138,13 @@ class PatrolStateMachine(Node):
 
         # ── 定时器: 主循环 10Hz ──
         self.main_timer = self.create_timer(0.1, self._main_loop)
+        # ── 状态重发: 每5秒发布当前状态(确保迟到订阅者收到) ──
+        self._state_repub_timer = self.create_timer(5.0, self._republish_state)
+
+    def _republish_state(self):
+        msg = String()
+        msg.data = self.state.value
+        self.state_pub.publish(msg)
 
         self.get_logger().info("巡逻状态机启动")
 

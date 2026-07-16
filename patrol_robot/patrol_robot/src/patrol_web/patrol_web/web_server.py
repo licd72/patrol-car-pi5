@@ -63,7 +63,7 @@ app = Flask(__name__)
 
 # 全局数据存储 (ROS2 线程写入, Flask 线程读取)
 _store = {
-    "state": "OFFLINE",
+    "state": "IDLE",  # 默认 IDLE (Nav2不可用时状态机降级为IDLE)
     "state_since": "",
     "waypoint": {"name": "—", "x": 0, "y": 0, "completed": 0, "total": 0},
     "detections": deque(maxlen=20),
