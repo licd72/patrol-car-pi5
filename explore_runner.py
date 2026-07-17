@@ -60,8 +60,9 @@ class Explorer(Node):
             if self._spin_count > 50:
                 self.get_logger().info('no frontier %ds, force forward!' % (self._spin_count // 10))
                 t = Twist(); t.linear.x = self.fwd; t.angular.z = 0.1
-                self.cmd.publish(t); self._force_end = time.time() + 2.0; return
-                self.cmd.publish(t); self._spin_count = 0; return
+                self.cmd.publish(t); self._force_end = time.time() + 2.0
+                self._spin_count = 0
+                return
             t = Twist(); t.angular.z = 0.3; self.cmd.publish(t); return
         self._spin_count = 0
         a = math.atan2(f[1] - self.pose[1], f[0] - self.pose[0])
