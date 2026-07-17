@@ -13,11 +13,11 @@ cleanup() {
     echo "保存地图..."
     MAP_DIR=/home/pi/patrol_robot/maps; mkdir -p $MAP_DIR
     TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-    timeout 5 ros2 run nav2_map_server map_saver_cli -f $MAP_DIR/slam_$TIMESTAMP 2>/dev/null
+    timeout 5 ros2 run nav2_map_server map_saver_cli -f $MAP_DIR/slam_$TIMESTAMP 2>/dev/null || true
     if [ -f "$MAP_DIR/slam_$TIMESTAMP.pgm" ]; then
         echo "  地图已保存: $MAP_DIR/slam_$TIMESTAMP.{pgm,yaml}"
     else
-        echo "  地图保存失败（可能 SLAM 已无数据）"
+        echo "  地图保存失败（SLAM 可能已无数据）"
     fi
     # 再杀进程
     echo "停止进程..."
@@ -61,9 +61,9 @@ python3 -u /home/pi/patrol_robot/nav2_explore.py > /tmp/explore.log 2>&1 &
 echo ""
 echo "=== 建图已启动 ==="
 echo "  Web: http://192.168.31.75:5000"
-echo "  SLAM 日志:  docker exec patrol_car tail -f /tmp/slam.log"
-echo "  Nav2 日志:  docker exec patrol_car tail -f /tmp/nav2.log"
-echo "  探索日志:  docker exec patrol_car tail -f /tmp/explore.log"
+echo "  SLAM:  docker exec patrol_car tail -f /tmp/slam.log"
+echo "  Nav2:  docker exec patrol_car tail -f /tmp/nav2.log"
+echo "  探索:  docker exec patrol_car tail -f /tmp/explore.log"
 echo ""
 echo "Ctrl+C 停止并保存地图"
 echo ""
