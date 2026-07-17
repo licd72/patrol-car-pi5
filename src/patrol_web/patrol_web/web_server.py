@@ -38,6 +38,10 @@ from rclpy.node import Node
 from std_msgs.msg import String
 from vision_msgs.msg import Detection2DArray
 from geometry_msgs.msg import Twist
+from nav_msgs.msg import OccupancyGrid, Odometry
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+import io
+import math as _math
 
 from flask import Flask, render_template, jsonify, send_from_directory, request, Response
 
@@ -63,6 +67,9 @@ app = Flask(__name__)
 
 # 全局数据存储 (ROS2 线程写入, Flask 线程读取)
 _store = {
+    "map_data": None,      # {w, h, res, ox, oy, cells: bytes}
+    "map_stamp": 0,        # 更新时间
+    "pose": {"x": 0.0, "y": 0.0, "theta": 0.0, "stamp": 0},
     "state": "IDLE",  # 默认 IDLE (Nav2不可用时状态机降级为IDLE)
     "state_since": "",
     "waypoint": {"name": "—", "x": 0, "y": 0, "completed": 0, "total": 0},
@@ -82,6 +89,71 @@ _store = {
 def dashboard():
     """仪表盘主页"""
     return render_template("dashboard.html")
+
+
+# ─── 地图 + 位姿 API ──────────────────────────
+@app.route("/api/pose")
+def api_pose():
+    return jsonify(_store.get("pose") or {"x": 0, "y": 0, "theta": 0, "stamp": 0})
+
+
+@app.route("/api/map/meta")
+def api_map_meta():
+    m = _store.get("map_data")
+    if not m:
+        return jsonify({"ok": False, "reason": "no map yet"})
+    return jsonify({
+        "ok": True,
+        "width": m["w"],
+        "height": m["h"],
+        "resolution": m["res"],
+        "origin_x": m["ox"],
+        "origin_y": m["oy"],
+        "stamp": _store.get("map_stamp", 0),
+    })
+
+
+@app.route("/api/map.png")
+def api_map_png():
+    """把 OccupancyGrid 编码成 PNG (dark theme: 空闲=浅灰, 障碍=红, 未知=深底)"""
+    m = _store.get("map_data")
+    if not m:
+        return Response(b"", mimetype="image/png", status=204)
+    try:
+        from PIL import Image
+    except ImportError:
+        return Response(b"pillow not installed", status=500)
+
+    w, h = m["w"], m["h"]
+    cells = m["cells"]  # list[int]
+
+    # RGB: 深色主题
+    rgb = bytearray(w * h * 3)
+    for i, c in enumerate(cells):
+        if c == -1:      # 未知 → 深灰
+            r, g, b = 30, 41, 59
+        elif c > 65:      # 障碍 → 亮红
+            r, g, b = 239, 68, 68
+        elif c < 25:      # 空闲 → 浅灰
+            r, g, b = 226, 232, 240
+        else:             # 边缘 → 中灰
+            r, g, b = 100, 116, 139
+        rgb[i*3] = r
+        rgb[i*3+1] = g
+        rgb[i*3+2] = b
+
+    # PGM/OccupancyGrid 是 bottom-left origin, 图像是 top-left → 垂直翻转行
+    row = w * 3
+    rows = [bytes(rgb[i*row:(i+1)*row]) for i in range(h)]
+    rgb_flipped = b"".join(reversed(rows))
+
+    img = Image.frombytes("RGB", (w, h), rgb_flipped)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    resp = Response(buf.read(), mimetype="image/png")
+    resp.headers["Cache-Control"] = "no-cache, max-age=0"
+    return resp
 
 
 @app.route("/api/state")
@@ -428,6 +500,13 @@ class PatrolWebNode(Node):
             Image, "/camera/rgb/image_raw", self._on_image, 10
         )
 
+        # ── 地图 (transient_local, RELIABLE) ──
+        map_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
+        self.map_sub = self.create_subscription(OccupancyGrid, "/map", self._on_map, map_qos)
+
+        # ── 里程计 (odom → pose) ──
+        self.odom_sub = self.create_subscription(Odometry, "/odom", self._on_odom, 10)
+
         # ── 控制发布器 ──
         self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
         self.vel_raw_pub = self.create_publisher(Twist, "/vel_raw", 10)
@@ -436,6 +515,28 @@ class PatrolWebNode(Node):
         _store["patrol_state_pub"] = self.create_publisher(String, "/patrol/state_control", 10)
 
         self.get_logger().info("Web 面板数据采集启动")
+
+    def _on_map(self, msg: OccupancyGrid):
+        _store["map_data"] = {
+            "w": msg.info.width,
+            "h": msg.info.height,
+            "res": msg.info.resolution,
+            "ox": msg.info.origin.position.x,
+            "oy": msg.info.origin.position.y,
+            "cells": list(msg.data),
+        }
+        _store["map_stamp"] = time.time()
+
+    def _on_odom(self, msg: Odometry):
+        q = msg.pose.pose.orientation
+        # yaw from quaternion (z,w 主分量, roll/pitch 忽略)
+        theta = _math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        _store["pose"] = {
+            "x": round(msg.pose.pose.position.x, 3),
+            "y": round(msg.pose.pose.position.y, 3),
+            "theta": round(theta, 3),
+            "stamp": time.time(),
+        }
 
     def _on_state(self, msg: String):
         _store["state"] = msg.data
