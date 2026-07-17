@@ -493,15 +493,16 @@ _store["_frame_lock"] = threading.Lock()
 def video_feed():
     """MJPEG 视频流 — 浏览器 <img src> 直出"""
     def generate():
+        import time as _t
         while True:
             with _store["_frame_lock"]:
                 frame = _store.get("_latest_frame")
             if frame is not None:
-                _, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                _, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
                 yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg.tobytes() + b"\r\n")
+                _t.sleep(0.1)  # 10fps 限速, 降低 CPU
             else:
-                import time
-                time.sleep(0.1)
+                _t.sleep(0.2)
     return Response(generate(), mimetype="multipart/x-mixed-replace; boundary=frame")
 
 

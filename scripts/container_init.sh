@@ -34,7 +34,7 @@ python3 /home/pi/patrol_robot/patrol_robot/src/ydlidar_driver.py &
 sleep 2
 
 echo "[3] YOLO检测..."
-ros2 run patrol_yolo yolo_detector --ros-args -p model_path:=/home/pi/patrol_robot/models/yolov5n.onnx -p confidence:=0.3 &
+ros2 run patrol_yolo yolo_detector --ros-args -p model_path:=/home/pi/patrol_robot/models/yolov5n.onnx -p confidence:=0.5 -p detect_interval:=1.0 &
 sleep 2
 
 echo "[4] 巡逻状态机..."
