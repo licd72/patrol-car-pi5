@@ -1,0 +1,23 @@
+# Yahboomcar 串口设备持久化 udev 规则 (v3 - 统一文件)
+# 2026-07-17 修正: ID_PATH 匹配实际 USB 拓扑
+#
+# USB 设备树:
+#   Bus 01 (xhci-hcd.0) Port 2: Hub
+#     Port 2: CP2102 (10c4:ea60) = YDLIDAR X4    -> /dev/rplidar
+#     Port 3: CH340  (1a86:7523) = STM32 底盘     -> /dev/myserial
+#     Port 4: Hub (Astra相机 + USB摄像头)
+#   Bus 03 (xhci-hcd.1)
+#     Port 1: CH340  (1a86:7522) = 语音模块       -> /dev/myspeech
+#     Port 2: CH340  (1a86:7523) = GPS/备用       -> /dev/voice
+
+# YDLIDAR X4 (CP2102, 有唯一序列号)
+SUBSYSTEM=="tty", ENV{ID_SERIAL}=="Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001", SYMLINK+="rplidar", MODE="0777"
+
+# 语音模块 YB-MAE01 (CH340 1a86:7522, 唯一 PID)
+SUBSYSTEM=="tty", ENV{ID_VENDOR_ID}=="1a86", ENV{ID_MODEL_ID}=="7522", SYMLINK+="myspeech", MODE="0666"
+
+# STM32 底盘 (CH340 1a86:7523, Bus 0 Port 2.3)
+SUBSYSTEM=="tty", ENV{ID_PATH}=="platform-xhci-hcd.0-usb-0:2.3:1.0", SYMLINK+="myserial", MODE="0666"
+
+# GPS/备用 (CH340 1a86:7523, Bus 1 Port 2)
+SUBSYSTEM=="tty", ENV{ID_PATH}=="platform-xhci-hcd.1-usb-0:2:1.0", SYMLINK+="voice", MODE="0666"

@@ -45,24 +45,6 @@ import math as _math
 
 from flask import Flask, render_template, jsonify, send_from_directory, request, Response
 
-# ── 底盘直接控制 (绕过 driver_node) ──
-import sys as _sys
-_sys.path.insert(0, '/home/pi/pi/software')
-from Rosmaster_Lib import Rosmaster as _Rosmaster
-_chassis = None
-
-def _get_chassis():
-    global _chassis
-    if _chassis is None:
-        try:
-            _chassis = _Rosmaster(com="/dev/myserial", debug=False)
-            _chassis.set_car_type(1)  # X3
-        except Exception:
-            _chassis = False
-    return _chassis if _chassis and _chassis is not False else None
-
-
-# ── Flask 应用 ──
 app = Flask(__name__)
 
 # 全局数据存储 (ROS2 线程写入, Flask 线程读取)
@@ -363,6 +345,57 @@ def delete_all_snapshots():
         count += 1
     return jsonify({"deleted": count})
 
+
+# ── 系统健康 API ──
+
+@app.route("/api/health")
+def api_health():
+    """系统健康状态: 电压/温度/内存/磁盘"""
+    import os as _os
+    health = {"voltage": None, "cpu_temp": None, "mem": None, "disk": None}
+
+    # 电池电压 (后续可订阅 /voltage 话题获取)
+    # bridge 已通过 Rosmaster_Lib 读取电池, 暂从 /api/health 返回 None
+    # TODO: 在 bridge 中发布 std_msgs/Float32 到 /voltage, web 订阅
+
+    # CPU 温度
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp") as f:
+            health["cpu_temp"] = round(int(f.read().strip()) / 1000.0, 1)
+    except Exception:
+        pass
+
+    # 内存
+    try:
+        with open("/proc/meminfo") as f:
+            lines = f.read().split("\n")
+        mem = {}
+        for l in lines:
+            if "MemTotal" in l: mem["total"] = int(l.split()[1])
+            if "MemAvailable" in l: mem["avail"] = int(l.split()[1])
+        if mem:
+            health["mem"] = {
+                "total_mb": round(mem["total"] / 1024, 1),
+                "avail_mb": round(mem["avail"] / 1024, 1),
+                "used_pct": round((1 - mem["avail"]/mem["total"]) * 100, 1),
+            }
+    except Exception:
+        pass
+
+    # 磁盘 (snapshots 目录)
+    try:
+        st = _os.statvfs(_store["snapshot_dir"])
+        total = st.f_blocks * st.f_frsize
+        free = st.f_bavail * st.f_frsize
+        health["disk"] = {
+            "total_gb": round(total / 1e9, 1),
+            "free_gb": round(free / 1e9, 1),
+            "used_pct": round((1 - free/total) * 100, 1),
+        }
+    except Exception:
+        pass
+
+    return jsonify(health)
 
 # ── 巡逻路线编辑 API ──
 

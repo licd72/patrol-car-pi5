@@ -82,7 +82,7 @@ class CmdVelBridge(Node):
 
         # 打开 Rosmaster
         from Rosmaster_Lib import Rosmaster
-        self.bot = Rosmaster(car_type=5, com=self.serial_port)
+        self.bot = Rosmaster(car_type=1, com=self.serial_port)
         self.bot.create_receive_threading()
         self.bot.set_auto_report_state(enable=True, forever=False)
         time.sleep(1.0)
