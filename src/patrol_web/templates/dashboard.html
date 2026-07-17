@@ -81,6 +81,23 @@
   .route-btn.del { background:var(--danger); color:#fff; }
 
   .speed-btn:hover { background:var(--accent); color:#000; }
+
+  /* 系统监控 */
+  .metric { display:flex; align-items:center; gap:8px; margin:6px 0; }
+  .metric .label { width:70px; font-size:13px; color:var(--muted); flex-shrink:0; }
+  .metric .bar-bg { flex:1; height:20px; background:#334155; border-radius:6px; overflow:hidden; position:relative; }
+  .metric .bar-fill { height:100%; border-radius:6px; transition:width .5s ease; }
+  .metric .val { width:65px; font-size:13px; text-align:right; flex-shrink:0; font-variant-numeric:tabular-nums; }
+  .bar-green { background:var(--success); }
+  .bar-yellow { background:var(--warning); }
+  .bar-red { background:var(--danger); }
+  .bar-blue { background:var(--accent); }
+  .bar-purple { background:var(--info); }
+  .health-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px 16px; }
+  .health-item { display:flex; flex-direction:column; gap:2px; }
+  .health-item .h-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; }
+  .health-item .h-val { font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .health-item .h-unit { font-size:12px; color:var(--muted); }
 </style>
 </head>
 <body>
@@ -108,6 +125,58 @@
     <h3>当前位置</h3>
     <div class="value" style="font-size:18px;" id="waypoint-name">—</div>
     <div style="color:var(--muted);font-size:13px;" id="waypoint-detail"></div>
+  </div>
+
+  <!-- 系统监控 -->
+  <div class="card" style="grid-column:span 2;">
+    <h3>📊 系统监控</h3>
+    <div class="health-grid" style="margin-bottom:12px;">
+      <div class="health-item">
+        <span class="h-label">🔋 电池电压</span>
+        <span class="h-val" id="health-voltage">--</span>
+        <span class="h-unit" id="health-voltage-status">等待数据</span>
+      </div>
+      <div class="health-item">
+        <span class="h-label">🌡️ CPU 温度</span>
+        <span class="h-val" id="health-temp">--</span>
+        <span class="h-unit">°C</span>
+      </div>
+      <div class="health-item">
+        <span class="h-label">💾 内存</span>
+        <span class="h-val" id="health-mem">--</span>
+        <span class="h-unit" id="health-mem-detail">--</span>
+      </div>
+      <div class="health-item">
+        <span class="h-label">⚙️ CPU 负载</span>
+        <span class="h-val" id="health-load">--</span>
+        <span class="h-unit" id="health-cores">--</span>
+      </div>
+    </div>
+    <div class="metric">
+      <span class="label">🔋 电池</span>
+      <div class="bar-bg"><div class="bar-fill bar-green" id="bar-voltage" style="width:0%"></div></div>
+      <span class="val" id="val-voltage">-- V</span>
+    </div>
+    <div class="metric">
+      <span class="label">🌡️ 温度</span>
+      <div class="bar-bg"><div class="bar-fill bar-green" id="bar-temp" style="width:0%"></div></div>
+      <span class="val" id="val-temp">-- °C</span>
+    </div>
+    <div class="metric">
+      <span class="label">💾 内存</span>
+      <div class="bar-bg"><div class="bar-fill bar-blue" id="bar-mem" style="width:0%"></div></div>
+      <span class="val" id="val-mem">-- %</span>
+    </div>
+    <div class="metric">
+      <span class="label">📁 磁盘</span>
+      <div class="bar-bg"><div class="bar-fill bar-purple" id="bar-disk" style="width:0%"></div></div>
+      <span class="val" id="val-disk">-- %</span>
+    </div>
+    <div class="metric">
+      <span class="label">⚙️ 负载</span>
+      <div class="bar-bg"><div class="bar-fill bar-yellow" id="bar-load" style="width:0%"></div></div>
+      <span class="val" id="val-load">--</span>
+    </div>
   </div>
 
   <!-- 实时画面 -->
@@ -357,17 +426,19 @@ window.addEventListener('load', () => { updateMapMeta(); });
 
 async function refresh() {
   try {
-    const [state, alerts, snaps, voices] = await Promise.all([
+    const [state, alerts, snaps, voices, health] = await Promise.all([
       fetch(API+'/state').then(r=>r.json()),
       fetch(API+'/alerts').then(r=>r.json()),
       fetch(API+'/snapshots').then(r=>r.json()),
       fetch(API+'/voice_cmds').then(r=>r.json()),
+      fetch(API+'/health').then(r=>r.json()).catch(()=>null),
     ]);
 
     renderState(state);
     renderAlerts(alerts);
     renderVoice(voices);
     renderSnapshots(snaps);
+    if (health) renderHealth(health);
 
     // 报警状态时加速刷新
     INTERVAL = state.state === 'ALERTING' ? 1000 : 2000;
@@ -395,6 +466,80 @@ function renderState(s) {
   document.getElementById('waypoint-name').textContent = wp.name || '—';
   document.getElementById('waypoint-detail').textContent =
     wp.name ? `${wp.completed}/${wp.total} 点` : '';
+}
+
+// ── 渲染系统监控 ──
+function renderHealth(h) {
+  // 电池电压 (12V 铅酸: 10.5V=0%, 13.5V=100%)
+  if (h.voltage != null) {
+    const v = h.voltage;
+    const vPct = Math.max(0, Math.min(100, ((v - 10.5) / 3.0) * 100));
+    document.getElementById('health-voltage').textContent = v.toFixed(1) + ' V';
+    document.getElementById('val-voltage').textContent = v.toFixed(1) + ' V';
+    document.getElementById('bar-voltage').style.width = vPct + '%';
+    let vColor = 'bar-green';
+    if (v < 11.0) vColor = 'bar-red';
+    else if (v < 11.5) vColor = 'bar-yellow';
+    document.getElementById('bar-voltage').className = 'bar-fill ' + vColor;
+    let vStatus = '正常';
+    if (v < 11.0) vStatus = '⚠️ 低电量!';
+    else if (v < 11.5) vStatus = '电量偏低';
+    document.getElementById('health-voltage-status').textContent = vStatus;
+  } else {
+    document.getElementById('health-voltage').textContent = 'N/A';
+    document.getElementById('health-voltage-status').textContent = 'bridge 未发布';
+  }
+
+  // CPU 温度 (0-90°C, >80 红色)
+  if (h.cpu_temp != null) {
+    const t = h.cpu_temp;
+    const tPct = Math.min(100, (t / 90) * 100);
+    document.getElementById('health-temp').textContent = t.toFixed(1);
+    document.getElementById('val-temp').textContent = t.toFixed(1) + ' °C';
+    document.getElementById('bar-temp').style.width = tPct + '%';
+    let tColor = 'bar-green';
+    if (t > 80) tColor = 'bar-red';
+    else if (t > 70) tColor = 'bar-yellow';
+    document.getElementById('bar-temp').className = 'bar-fill ' + tColor;
+  }
+
+  // 内存
+  if (h.mem) {
+    const mPct = h.mem.used_pct;
+    document.getElementById('health-mem').textContent = mPct.toFixed(0) + '%';
+    document.getElementById('health-mem-detail').textContent =
+      h.mem.avail_mb.toFixed(0) + ' / ' + h.mem.total_mb.toFixed(0) + ' MB';
+    document.getElementById('val-mem').textContent = mPct.toFixed(0) + ' %';
+    document.getElementById('bar-mem').style.width = mPct + '%';
+    let mColor = 'bar-blue';
+    if (mPct > 90) mColor = 'bar-red';
+    else if (mPct > 75) mColor = 'bar-yellow';
+    document.getElementById('bar-mem').className = 'bar-fill ' + mColor;
+  }
+
+  // 磁盘
+  if (h.disk) {
+    const dPct = h.disk.used_pct;
+    document.getElementById('val-disk').textContent = dPct.toFixed(0) + ' %';
+    document.getElementById('bar-disk').style.width = dPct + '%';
+    let dColor = 'bar-purple';
+    if (dPct > 90) dColor = 'bar-red';
+    else if (dPct > 80) dColor = 'bar-yellow';
+    document.getElementById('bar-disk').className = 'bar-fill ' + dColor;
+  }
+
+  // CPU 负载 (Pi5 4核, load=4.0=100%)
+  if (h.load != null) {
+    const lPct = Math.min(100, (h.load / 4.0) * 100);
+    document.getElementById('health-load').textContent = h.load.toFixed(2);
+    document.getElementById('health-cores').textContent = '/ 4 核';
+    document.getElementById('val-load').textContent = h.load.toFixed(2);
+    document.getElementById('bar-load').style.width = lPct + '%';
+    let lColor = 'bar-yellow';
+    if (lPct > 90) lColor = 'bar-red';
+    else if (lPct < 50) lColor = 'bar-green';
+    document.getElementById('bar-load').className = 'bar-fill ' + lColor;
+  }
 }
 
 // ── 渲染语音命令 ──

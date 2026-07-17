@@ -21,6 +21,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist, TransformStamped
 from nav_msgs.msg import Odometry
+from std_msgs.msg import Float32
 from tf2_ros import TransformBroadcaster
 
 TICK_PER_M = 1.0 / 1.843e-4  # 标定: 891 ticks / 0.225m = 3961 tick/m
@@ -93,6 +94,7 @@ class CmdVelBridge(Node):
 
         # 发布
         self.odom_pub = self.create_publisher(Odometry, "/odom", 10)
+        self.voltage_pub = self.create_publisher(Float32, "/patrol/voltage", 10)
         self.tf_br = TransformBroadcaster(self)
 
         # 状态
@@ -140,12 +142,20 @@ class CmdVelBridge(Node):
         self._stat_hb += 1
 
     def _stat_log(self):
+        """每秒状态日志 + 电池电压发布"""
         vx, vy, wz = self._last_cmd
         stopped = (time.time() - self._last_cmd_time) > self.cmd_timeout
         try:
             enc_now = self.bot.get_motor_encoder()
         except Exception:
             enc_now = None
+        # 发布电池电压
+        try:
+            bat = self.bot.get_battery_voltage()
+            if bat and bat > 0.1:
+                self.voltage_pub.publish(Float32(data=float(bat)))
+        except Exception:
+            pass
         self.get_logger().info(
             f"stat: recv={self._stat_recv} hb={self._stat_hb} vx={vx:.2f} vy={vy:.2f} wz={wz:.2f} stopped={stopped} odom={self._n_odom} x={self._x:.2f} y={self._y:.2f} th={math.degrees(self._th):.0f}deg enc={enc_now}"
         )

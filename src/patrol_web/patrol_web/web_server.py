@@ -39,6 +39,7 @@ from std_msgs.msg import String
 from vision_msgs.msg import Detection2DArray
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import OccupancyGrid, Odometry
+from std_msgs.msg import Float32
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 import io
 import math as _math
@@ -54,6 +55,7 @@ _store = {
     "pose": {"x": 0.0, "y": 0.0, "theta": 0.0, "stamp": 0},
     "state": "IDLE",  # 默认 IDLE (Nav2不可用时状态机降级为IDLE)
     "state_since": "",
+    "voltage": 0.0,
     "waypoint": {"name": "—", "x": 0, "y": 0, "completed": 0, "total": 0},
     "detections": deque(maxlen=20),
     "alerts": deque(maxlen=50),
@@ -354,9 +356,8 @@ def api_health():
     import os as _os
     health = {"voltage": None, "cpu_temp": None, "mem": None, "disk": None}
 
-    # 电池电压 (后续可订阅 /voltage 话题获取)
-    # bridge 已通过 Rosmaster_Lib 读取电池, 暂从 /api/health 返回 None
-    # TODO: 在 bridge 中发布 std_msgs/Float32 到 /voltage, web 订阅
+    # 电池电压 (从 bridge 发布的 /patrol/voltage 话题获取)
+    health["voltage"] = _store.get("voltage", 0.0) or None
 
     # CPU 温度
     try:
@@ -382,16 +383,23 @@ def api_health():
     except Exception:
         pass
 
-    # 磁盘 (snapshots 目录)
+    # 磁盘 (根分区)
     try:
-        st = _os.statvfs(_store["snapshot_dir"])
-        total = st.f_blocks * st.f_frsize
-        free = st.f_bavail * st.f_frsize
+        st = _os.statvfs("/")
+        total_gb = round(st.f_blocks * st.f_frsize / 1073741824, 1)
+        avail_gb = round(st.f_bavail * st.f_frsize / 1073741824, 1)
         health["disk"] = {
-            "total_gb": round(total / 1e9, 1),
-            "free_gb": round(free / 1e9, 1),
-            "used_pct": round((1 - free/total) * 100, 1),
+            "total_gb": total_gb,
+            "avail_gb": avail_gb,
+            "used_pct": round((1 - st.f_bavail / st.f_blocks) * 100, 1),
         }
+    except Exception:
+        pass
+
+    # CPU 负载 (1分钟平均)
+    try:
+        with open("/proc/loadavg") as f:
+            health["load"] = float(f.read().split()[0])
     except Exception:
         pass
 
@@ -540,6 +548,9 @@ class PatrolWebNode(Node):
         # ── 里程计 (odom → pose) ──
         self.odom_sub = self.create_subscription(Odometry, "/odom", self._on_odom, 10)
 
+        # ── 电池电压 (bridge 发布) ──
+        self.voltage_sub = self.create_subscription(Float32, "/patrol/voltage", self._on_voltage, 10)
+
         # ── 控制发布器 ──
         self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
         self.vel_raw_pub = self.create_publisher(Twist, "/vel_raw", 10)
@@ -570,6 +581,10 @@ class PatrolWebNode(Node):
             "theta": round(theta, 3),
             "stamp": time.time(),
         }
+
+    def _on_voltage(self, msg: Float32):
+        """接收 bridge 发布的电池电压"""
+        _store["voltage"] = round(msg.data, 2)
 
     def _on_state(self, msg: String):
         _store["state"] = msg.data
