@@ -603,12 +603,21 @@ def main(args=None):
     ros_node = PatrolWebNode()
 
     # Flask 在独立线程运行
-    # Flask 模板路径: install/share/patrol_web/templates/
-    template_dir = str(
-        Path(__file__).parent.parent.parent.parent
-        / "install" / "patrol_web" / "share" / "patrol_web" / "templates"
-    )
+    # Flask 模板路径: 优先 install/share (colcon 布局), fallback src/
+    _candidates = [
+        Path("/home/pi/patrol_robot/patrol_robot/install/patrol_web/share/patrol_web/templates"),
+        Path("/home/pi/patrol_robot/patrol_robot/src/patrol_web/templates"),
+        Path(__file__).resolve().parent.parent.parent.parent.parent / "install" / "patrol_web" / "share" / "patrol_web" / "templates",
+    ]
+    template_dir = None
+    for _c in _candidates:
+        if (_c / "dashboard.html").exists():
+            template_dir = str(_c)
+            break
+    if template_dir is None:
+        template_dir = str(_candidates[0])
     app.template_folder = template_dir
+    ros_node.get_logger().info(f"template_folder = {template_dir}")
 
     flask_thread = threading.Thread(
         target=app.run,
