@@ -1,5 +1,5 @@
 #!/bin/bash
-# 停止探索建图 + 停车 (快速版)
+# 停止探索建图 + 停车
 source /opt/ros/foxy/setup.bash
 source /home/pi/patrol_robot/patrol_robot/install/setup.bash
 
@@ -10,8 +10,8 @@ pkill -f 'nav2_explore.py' 2>/dev/null && echo "  已停止 explorer" || true
 pkill -f 'explore_runner.py' 2>/dev/null || true
 pkill -f 'lifecycle_manager' 2>/dev/null && echo "  已停止 lifecycle" || true
 
-# 2. 杀全部 Nav2 + SLAM + TF（一次性）
-pkill -f 'controller_server|planner_server|bt_navigator|recoveries_server|waypoint_follower|navigation_launch|slam_toolbox|robot_tf|start_slam' 2>/dev/null
+# 2. 杀全部 Nav2 + SLAM + TF（一次性，不含 start_slam 自身）
+pkill -f 'controller_server|planner_server|bt_navigator|recoveries_server|waypoint_follower|navigation_launch|slam_toolbox|robot_tf.py' 2>/dev/null
 sleep 1
 
 # 3. 强制清理

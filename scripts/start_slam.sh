@@ -5,11 +5,10 @@ export TZ='Asia/Shanghai'
 source /opt/ros/foxy/setup.bash
 source /home/pi/patrol_robot/patrol_robot/install/setup.bash
 
-# ── 清理函数 (Ctrl+C 时调用) ──
 cleanup() {
+    trap '' SIGINT SIGTERM   # 禁用 trap 防止递归
     echo ""
     echo "=== 停止建图 ==="
-    # 先保存地图（SLAM 还活着）
     echo "保存地图..."
     MAP_DIR=/home/pi/patrol_robot/maps; mkdir -p $MAP_DIR
     TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -19,7 +18,6 @@ cleanup() {
     else
         echo "  地图保存失败（SLAM 可能已无数据）"
     fi
-    # 再杀进程
     echo "停止进程..."
     bash /home/pi/patrol_robot/scripts/stop_slam.sh 2>/dev/null
     exit 0
@@ -31,7 +29,9 @@ echo "时间: $(date)"
 
 # ── 0. 清理旧进程 ──
 echo "[0] 清理旧进程..."
+trap '' SIGINT SIGTERM   # 清理时禁用 trap
 bash /home/pi/patrol_robot/scripts/stop_slam.sh 2>/dev/null
+trap cleanup SIGINT SIGTERM  # 恢复 trap
 sleep 2
 
 # ── 1. 静态 TF ──
@@ -68,5 +68,4 @@ echo ""
 echo "Ctrl+C 停止并保存地图"
 echo ""
 
-# 等待 Ctrl+C
 while true; do sleep 1; done
