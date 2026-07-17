@@ -27,6 +27,37 @@ TICK_PER_M = 1.0 / 1.843e-4  # 标定: 891 ticks / 0.225m = 3961 tick/m
 # 校准值 (2026-07-17): 编码器 0.15 m/s × 1.5 s -> 平均 delta ≈ 891 ticks
 M_PER_TICK = 1.843e-4
 
+# ═══════════════════════════════════════════════
+#  运动补偿 (4 麦轮驱动 + 前 2×170mm 大轮阻力)
+# ═══════════════════════════════════════════════
+# 标定日期: 2026-07-17
+# wz: 有明显死区 (<0.5 rad/s 不转) + 增益损失 ~37%
+#   拟合: wz_cmd = 2.33 × wz_want + 0.4 (符号相同)
+# vx: 已接近线性 (0.2 m/s ≈ 100%), 略微增益
+# vy: 前 2 大轮抗侧移, 待标定, 暂设 1.5x + 0.15 死区
+def compensate_motion(vx, vy, wz):
+    """把用户目标速度 → STM32 需要的命令值"""
+    # vx: 线性 (0.15+ 基本 100%)
+    if abs(vx) < 0.02:
+        vx_cmd = 0.0
+    else:
+        vx_cmd = vx * 1.05  # 略微增益补摩擦
+    # vy: 侧移前拖轮阻力大, 死区 + 增益
+    if abs(vy) < 0.02:
+        vy_cmd = 0.0
+    else:
+        vy_cmd = math.copysign(1.5 * abs(vy) + 0.15, vy)
+    # wz: 死区 + 增益
+    if abs(wz) < 0.02:
+        wz_cmd = 0.0
+    else:
+        wz_cmd = math.copysign(2.33 * abs(wz) + 0.4, wz)
+    # 限幅 (X3 极限 vx/vy ±1.0, wz ±5.0)
+    vx_cmd = max(-1.0, min(1.0, vx_cmd))
+    vy_cmd = max(-1.0, min(1.0, vy_cmd))
+    wz_cmd = max(-5.0, min(5.0, wz_cmd))
+    return vx_cmd, vy_cmd, wz_cmd
+
 
 class CmdVelBridge(Node):
     def __init__(self):
@@ -96,9 +127,11 @@ class CmdVelBridge(Node):
         if stopped:
             vx = vy = wz = 0.0
             self._last_cmd = (0.0, 0.0, 0.0)
+        # 应用运动补偿 (针对 4 麦轮 + 前 2×170mm 大轮阻力)
+        vx_cmd, vy_cmd, wz_cmd = compensate_motion(vx, vy, wz)
         try:
             t0 = time.time()
-            self.bot.set_car_motion(vx, vy, wz)
+            self.bot.set_car_motion(vx_cmd, vy_cmd, wz_cmd)
             dt = time.time() - t0
             if dt > 0.05:
                 self.get_logger().warn(f"set_car_motion 耗时 {dt*1000:.1f}ms!", throttle_duration_sec=1)
@@ -125,6 +158,7 @@ class CmdVelBridge(Node):
         try:
             enc = self.bot.get_motor_encoder()  # (m1, m2, m3, m4)
             imu = self.bot.get_imu_attitude_data()  # (roll, pitch, yaw) 度
+            gyro = self.bot.get_gyroscope_data()  # (gx, gy, gz) rad/s
         except Exception as e:
             self.get_logger().error(f"read err: {e}", throttle_duration_sec=2)
             return
@@ -155,7 +189,8 @@ class CmdVelBridge(Node):
         # 平均 4 轮 = 前进距离
         d_forward = sum(d_ticks) / 4.0 * M_PER_TICK
 
-        # yaw 用 IMU (更稳)
+        # yaw 用 IMU attitude (STM32 内部融合, 无累积漂移)
+        # 实测 gz 积分 30°/分钟 漂移太大, 弃用
         if imu and self._th_offset is not None:
             self._th = math.radians(imu[2]) - self._th_offset
             # normalize
