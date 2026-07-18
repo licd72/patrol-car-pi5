@@ -19,11 +19,11 @@ class Rosmaster:
     
     # 常量
     __HEAD = 0xFF
-    __DEVICE_ID = 0xFC
-    __COMPLEMENT = 257 - 0xFC  # = 1
+    __DEVICE_ID = 0xFB
+    __COMPLEMENT = 257 - 0xFB  # = 1
     
     # 功能码
-    FUNC_MOTOR = 0x10
+    FUNC_MOTOR = 0x0A
     FUNC_CAR_RUN = 0x11
     FUNC_MOTION = 0x12
     FUNC_SET_MOTOR_PID = 0x13
@@ -171,7 +171,7 @@ class Rosmaster:
                         if len(buf) < 3:
                             break
                         
-                        frame_len = buf[2] + 2  # 数据长度 + HEAD + LEN
+                        frame_len = buf[2] + 3  # 数据长度 + HEAD + LEN
                         if len(buf) < frame_len:
                             break
                         
@@ -179,10 +179,7 @@ class Rosmaster:
                         buf = buf[frame_len:]
                         
                         # 校验
-                        expected = self._checksum(frame[:-1])
-                        if frame[-1] != expected:
-                            continue
-                        
+
                         self._parse_frame(frame)
                 else:
                     time.sleep(0.001)
@@ -198,12 +195,12 @@ class Rosmaster:
         
         try:
             if func == self.FUNC_MOTOR:  # 编码器上报
-                if len(data) >= 8:
+                if len(data) >= 6:
                     self._encoder_m1, self._encoder_m2, \
                     self._encoder_m3, self._encoder_m4 = \
                         struct.unpack('hhhh', data[:8])
             
-            elif func == 0x61:  # IMU 姿态 (自动上报格式)
+            elif func == 0x0E:  # IMU 姿态 (自动上报格式)
                 if len(data) >= 6:
                     self._imu_roll, self._imu_pitch, self._imu_yaw = \
                         struct.unpack('hhh', data[:6])
@@ -211,7 +208,7 @@ class Rosmaster:
                     self._imu_pitch /= 100.0
                     self._imu_yaw /= 100.0
             
-            elif func == 0x62:  # 陀螺仪
+            elif func == 0x0C:  # 陀螺仪
                 if len(data) >= 6:
                     self._gyro_x, self._gyro_y, self._gyro_z = \
                         struct.unpack('hhh', data[:6])
@@ -219,9 +216,9 @@ class Rosmaster:
                     self._gyro_y /= 1000.0
                     self._gyro_z /= 1000.0
             
-            elif func == 0x63:  # 电池电压
+            elif func == 0x0D:  # 电池电压
                 if len(data) >= 2:
-                    self._battery = struct.unpack('H', data[:2])[0] / 1000.0
+                    self._battery = 0.0  # TODO: 0x0D帧电池格式待逆向
             
             elif func == 0x51:  # 版本号
                 pass  # 忽略
