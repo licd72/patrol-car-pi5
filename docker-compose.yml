@@ -3,7 +3,7 @@ services:
   patrol_car:
     image: patrol-robot:foxy
     container_name: patrol_car
-    mem_limit: 1024m
+    mem_limit: 2048m
     network_mode: host
     privileged: true
     restart: always
@@ -27,7 +27,7 @@ services:
   slam_nav:
     image: patrol-nav2:humble
     container_name: slam_nav
-    mem_limit: 1024m
+    mem_limit: 2048m
     network_mode: host
     privileged: true
     restart: "no"
