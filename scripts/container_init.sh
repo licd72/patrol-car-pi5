@@ -1,4 +1,5 @@
 #!/bin/bash
+export PYTHONPATH="/home/pi/patrol_robot/patrol_robot/src/Speech_Lib:$PYTHONPATH"
 export TZ=Asia/Shanghai
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export FASTRTPS_SHM_DISABLE=1
