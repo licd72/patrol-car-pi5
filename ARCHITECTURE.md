@@ -338,7 +338,53 @@ docker stop serial_driver && docker rm serial_driver
 
 ---
 
-## 8. 铁律
+## 8. 核心驱动库备份与依赖关系
+
+### 8.1 驱动库清单
+
+| 库名 | 版本 | 大小 | MD5 (Pi) | 备份位置 |
+|:--|:--|:--|:--|:--|
+| **Rosmaster_Lib.py** | V1.5.8 原厂 | 49,803 字节 | `65161b7c...` | Pi: `/home/pi/patrol_robot/Rosmaster_Lib.py`<br>Pi: `patrol_robot/src/Rosmaster_Lib.py`<br>GitHub: 同路径×2<br>Windows: `D:\小车-ros\Rosmaster-X3资料\ROS1\...` |
+| **Speech_Lib.py** | — | 1,413 字节 | — | Pi: `patrol_robot/src/Speech_Lib/Speech_Lib.py`<br>GitHub: 同路径 |
+
+### 8.2 依赖关系图
+
+```
+serial_worker.py / cmd_vel_bridge.py
+  ├── import Rosmaster_Lib.Rosmaster ← /home/pi/patrol_robot/Rosmaster_Lib.py
+  │     ├── import serial (pyserial 3.4)
+  │     ├── import struct (标准库)
+  │     └── import threading (标准库)
+  │
+  ├── 串口: /dev/myserial → ttyUSB2 (KERNELS="3-1.3*")
+  │
+voice_node.py
+  ├── import Speech_Lib.Speech ← PYTHONPATH=patrol_robot/src/Speech_Lib/
+  ├── import rclpy
+  └── /dev/myspeech → ttyUSB0 (KERNELS="1-2*")
+
+web_server.py
+  ├── from flask import Flask (1.1.1)
+  ├── import rclpy
+  └── publish /cmd_vel
+    
+ydlidar_driver.py
+  ├── /dev/rplidar → ttyUSB3 (KERNELS="3-1.2*")
+  └── 纯 Python, 无 ROS2
+
+simple_camera.py
+  └── /dev/video0, 320×240 MJPG
+```
+
+### 8.3 备份策略
+
+- **Rosmaster_Lib**：Pi 上 2 份 + GitHub 2 份 + Windows 原厂资料 1 份 = **5 份**
+- **Speech_Lib**：Pi 1 份 + GitHub 1 份 = **2 份**
+- **恢复方法**：`git clone https://github.com/licd72/patrol-car-pi5` 即可恢复全部
+
+---
+
+## 9. 铁律
 
 | # | 规则 |
 |:--|:--|
