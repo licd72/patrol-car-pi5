@@ -168,12 +168,14 @@ class YoloDetector(Node):
 
         # 1. 预处理: resize + normalize
         blob = cv2.resize(img, (self.input_width, self.input_height))
-        blob = blob.astype(np.float32) / 255.0
+        blob = blob.astype(np.float16) / 255.0
         blob = np.transpose(blob, (2, 0, 1))  # HWC → CHW
         blob = np.expand_dims(blob, axis=0)    # → (1, 3, 640, 640)
 
         # 2. ONNX 推理
         with self._lock:
+            blob = blob.astype(np.float16)
+            blob = blob.astype(np.float16)
             outputs = self.session.run(None, {self.input_name: blob})
 
         # YOLOv5 输出: (1, 25200, 85) — 85 = 4(bbox) + 1(obj) + 80(cls)
