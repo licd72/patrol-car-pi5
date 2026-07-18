@@ -1,15 +1,12 @@
 # /etc/udev/rules.d/99-x3-devices.rules
-# X3 巡逻小车 - 基于 USB 物理端口绑定设备符号链接
-# 端口号不随重启变化，保证 /dev/myserial /dev/myspeech /dev/rplidar 不变
+# X3 巡逻小车 - KERNELS 物理端口绑定 (比 ID_PATH 更短更稳)
+# 廉价 CH340 无唯一序列号, by-id 重复 → 只能用物理端口
 
-# STM32 底盘控制板 - CH340 (1a86:7523) - Bus3 Port1 Port3
-# ID_PATH=platform-xhci-hcd.1-usb-0:1.3:1.0
-SUBSYSTEM=="tty", ENV{ID_PATH}=="platform-xhci-hcd.1-usb-0:1.3:1.0", SYMLINK+="myserial"
+# STM32 底盘控制板 (BAT=11.6V) - Bus3 Port1 Port3
+KERNELS=="3-1.3*", SUBSYSTEM=="tty", SYMLINK+="myserial", MODE="0666"
 
-# 语音识别模块 - CH340 (1a86:7522) - Bus1 Port2
-# ID_PATH=platform-xhci-hcd.0-usb-0:2:1.0
-SUBSYSTEM=="tty", ENV{ID_PATH}=="platform-xhci-hcd.0-usb-0:2:1.0", SYMLINK+="myspeech"
+# 语音识别模块 - Bus1 Port2
+KERNELS=="1-2*", SUBSYSTEM=="tty", SYMLINK+="myspeech", MODE="0666"
 
-# 激光雷达 YDLIDAR X4 - CP2102 (10c4:ea60) - Bus3 Port1 Port2
-# ID_PATH=platform-xhci-hcd.1-usb-0:1.2:1.0
-SUBSYSTEM=="tty", ENV{ID_PATH}=="platform-xhci-hcd.1-usb-0:1.2:1.0", SYMLINK+="rplidar"
+# 激光雷达 YDLIDAR X4 (CP2102) - Bus3 Port1 Port2
+KERNELS=="3-1.2*", SUBSYSTEM=="tty", SYMLINK+="rplidar", MODE="0666"
