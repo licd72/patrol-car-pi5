@@ -1,0 +1,46 @@
+services:
+  # === Foxy 容器: 底盘 + 传感器 ===
+  patrol_car:
+    image: patrol-robot:foxy
+    container_name: patrol_car
+    network_mode: host
+    privileged: true
+    restart: always
+    environment:
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - FASTRTPS_SHM_DISABLE=1
+      - TZ=Asia/Shanghai
+      - ROBOT_TYPE=x3
+      - RPLIDAR_TYPE=4ROS
+      - ROS_DOMAIN_ID=0
+    volumes:
+      - /home/pi/patrol_robot:/home/pi/patrol_robot
+      - /dev:/dev
+      - /tmp:/tmp
+    devices:
+      - /dev/myserial:/dev/myserial
+      - /dev/rplidar:/dev/rplidar
+      - /dev/video0:/dev/video0
+    working_dir: /home/pi/patrol_robot/patrol_robot
+    command: bash /home/pi/patrol_robot/scripts/container_init.sh
+
+  # === Humble 容器: SLAM + Nav2 (按需启动) ===
+  slam_nav:
+    image: patrol-robot:humble
+    container_name: slam_nav
+    network_mode: host
+    restart: "no"
+    environment:
+      - RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+      - FASTRTPS_SHM_DISABLE=1
+      - TZ=Asia/Shanghai
+      - ROS_DOMAIN_ID=0
+    volumes:
+      - /home/pi/patrol_robot:/home/pi/patrol_robot
+      - /tmp:/tmp
+    command: tail -f /dev/null
+
+
+
+
+

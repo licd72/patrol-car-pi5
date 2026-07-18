@@ -1,71 +1,53 @@
 #!/bin/bash
-# 巡逻小车 - 自主探索建图一键启动
-# 用法: docker exec -it patrol_car bash /home/pi/patrol_robot/scripts/start_slam.sh
-export TZ='Asia/Shanghai'
-source /opt/ros/foxy/setup.bash
-source /home/pi/patrol_robot/patrol_robot/install/setup.bash
+# 在 slam_nav 容器内启动 SLAM (含 robot_state_publisher)
+source /opt/ros/humble/setup.bash
 
-cleanup() {
-    trap '' SIGINT SIGTERM   # 禁用 trap 防止递归
-    echo ""
-    echo "=== 停止建图 ==="
-    echo "保存地图..."
-    MAP_DIR=/home/pi/patrol_robot/maps; mkdir -p $MAP_DIR
-    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-    timeout 5 ros2 run nav2_map_server map_saver_cli -f $MAP_DIR/slam_$TIMESTAMP 2>/dev/null || true
-    if [ -f "$MAP_DIR/slam_$TIMESTAMP.pgm" ]; then
-        echo "  地图已保存: $MAP_DIR/slam_$TIMESTAMP.{pgm,yaml}"
-    else
-        echo "  地图保存失败（SLAM 可能已无数据）"
-    fi
-    echo "停止进程..."
-    bash /home/pi/patrol_robot/scripts/stop_slam.sh 2>/dev/null
-    exit 0
-}
-trap cleanup SIGINT SIGTERM
+echo "=== SLAM 启动 (v2) ==="
 
-echo "=== 自主探索建图系统 (Nav2) ==="
-echo "时间: $(date)"
+# ── 1. 启动 robot_state_publisher (发布静态 TF) ──
+# 最小化 URDF: base_footprint → base_link → laser_frame
+ROBOT_DESC="${ROBOT_DESC:-/tmp/mini_robot.urdf}"
+if [ ! -f "$ROBOT_DESC" ]; then
+    cat > "$ROBOT_DESC" << 'URDFEOF'
+<?xml version="1.0"?>
+<robot name="yahboom_x3_mini">
+  <link name="base_footprint"/>
+  <link name="base_link"/>
+  <link name="laser_frame"/>
+  <joint name="base_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0.075" rpy="0 0 0"/>
+  </joint>
+  <joint name="laser_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="laser_frame"/>
+    <origin xyz="0.044 0 0.11" rpy="0 0 0"/>
+  </joint>
+</robot>
+URDFEOF
+fi
 
-# ── 0. 清理旧进程 ──
-echo "[0] 清理旧进程..."
-trap '' SIGINT SIGTERM   # 清理时禁用 trap
-bash /home/pi/patrol_robot/scripts/stop_slam.sh 2>/dev/null
-trap cleanup SIGINT SIGTERM  # 恢复 trap
+# 使用 YAML params file 避免命令行 XML 解析崩溃
+cat > /tmp/robot_desc.yaml << YAMLEOF
+/**:
+  ros__parameters:
+    robot_description: "$(cat $ROBOT_DESC | sed 's/"/\\"/g' | tr '\n' ' ')"
+YAMLEOF
+
+ros2 run robot_state_publisher robot_state_publisher     --ros-args --params-file /tmp/robot_desc.yaml &
+RSP_PID=$!
+echo "robot_state_publisher PID=$RSP_PID"
 sleep 2
 
-# ── 1. 静态 TF ──
-echo "[1] 静态 TF..."
-python3 /home/pi/patrol_robot/scripts/robot_tf.py > /tmp/robot_tf.log 2>&1 &
-sleep 2
+# ── 2. 启动 slam_toolbox ──
+PARAMS="/home/pi/patrol_robot/config/slam_params.yaml"
+if [ ! -f "$PARAMS" ]; then
+    echo "⚠ 使用默认参数"
+    PARAMS=""
+fi
 
-# ── 2. SLAM ──
-echo "[2] slam_toolbox 建图..."
-ros2 run slam_toolbox async_slam_toolbox_node \
-    --ros-args --params-file /home/pi/patrol_robot/config/slam_params.yaml \
-    > /tmp/slam.log 2>&1 &
-sleep 5
+ros2 run slam_toolbox async_slam_toolbox_node     --ros-args --params-file ${PARAMS:-/dev/null}     -p use_sim_time:=false
 
-# ── 3. Nav2 导航栈 ──
-echo "[3] Nav2 导航栈..."
-ros2 launch nav2_bringup navigation_launch.py \
-    params_file:=/home/pi/patrol_robot/config/nav2_params.yaml \
-    use_sim_time:=false autostart:=true \
-    > /tmp/nav2.log 2>&1 &
-sleep 8
-
-# ── 4. 前沿探索 ──
-echo "[4] 前沿探索..."
-python3 -u /home/pi/patrol_robot/nav2_explore.py > /tmp/explore.log 2>&1 &
-
-echo ""
-echo "=== 建图已启动 ==="
-echo "  Web: http://192.168.31.75:5000"
-echo "  SLAM:  docker exec patrol_car tail -f /tmp/slam.log"
-echo "  Nav2:  docker exec patrol_car tail -f /tmp/nav2.log"
-echo "  探索:  docker exec patrol_car tail -f /tmp/explore.log"
-echo ""
-echo "Ctrl+C 停止并保存地图"
-echo ""
-
-while true; do sleep 1; done
+# 退出时清理
+kill $RSP_PID 2>/dev/null
