@@ -422,7 +422,7 @@ def video_feed():
             with _store["_frame_lock"]:
                 frame = _store.get("_latest_frame")
             if frame is not None:
-                _, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                _, jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 40])
                 yield (b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg.tobytes() + b"\r\n")
             else:
                 import time
