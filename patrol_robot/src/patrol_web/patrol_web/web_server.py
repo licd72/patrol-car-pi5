@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+_qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1)
 """
 巡逻小车 Web 监控面板
 
@@ -471,7 +473,7 @@ class PatrolWebNode(Node):
         )
 
         # ── 控制发布器 ──
-        self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
+        self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", _qos)
         self.vel_raw_pub = self.create_publisher(Twist, "/vel_raw", 10)
         _store["cmd_vel_pub"] = self.cmd_vel_pub
         _store["vel_raw_pub"] = self.vel_raw_pub

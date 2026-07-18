@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+_qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1)
 import sys; sys.path.insert(0, "/home/pi/patrol_robot/patrol_robot/src/Speech_Lib")
 """
 巡逻车语音交互节点
@@ -116,7 +118,7 @@ class PatrolVoice(Node):
 
         # 发布
         self.cmd_pub = self.create_publisher(String, "/patrol/voice_cmd", 10)
-        self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
+        self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", _qos)
 
         # 命令轮询
         if self.command_enabled:

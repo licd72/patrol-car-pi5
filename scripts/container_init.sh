@@ -1,14 +1,12 @@
 #!/bin/bash
 export PYTHONPATH="/home/pi/patrol_robot/patrol_robot/src/Speech_Lib:$PYTHONPATH"
 export TZ=Asia/Shanghai
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-export FASTRTPS_SHM_DISABLE=1
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export ROS_DOMAIN_ID=42
 export ROBOT_TYPE=x3
 echo "=== 巡逻系统启动 $(date) ==="
 
-# 释放摄像头
 fuser -k /dev/video0 2>/dev/null; sleep 0.5
-
 source /opt/ros/foxy/setup.bash
 source /home/pi/patrol_robot/patrol_robot/install/setup.bash
 

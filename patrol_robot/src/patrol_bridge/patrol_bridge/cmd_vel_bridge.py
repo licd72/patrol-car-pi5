@@ -1,285 +1,69 @@
 #!/usr/bin/env python3
-"""
-cmd_vel_bridge (产品版 v2.0)
-
-v2 增加:
-  - 编码器读取 + 陀螺仪 yaw 积分
-  - 发布 /odom (nav_msgs/Odometry)  
-  - 发布 tf odom → base_footprint (动态)
-  - 关键: 与写共用同一 Rosmaster 实例 (同进程读写不冲突)
-
-设计目的:
-  1. 系统内唯一 /cmd_vel 订阅者 → 唯一电机 owner
-  2. 10Hz heartbeat 持续重发最后一条 Twist → 对抗 STM32 ~100ms watchdog
-  3. 0.5s 未收到新命令 → 自动停车
-  4. 读+写共同进程 (create_receive_threading 只在 bridge 里)
-  5. 20Hz 从编码器计算 odom + IMU yaw → /odom + tf
-"""
-import math
-import time
-import rclpy
+"""cmd_vel_bridge — 订阅 /cmd_vel, 驱动 STM32 底盘"""
+import rclpy, sys, time
 from rclpy.node import Node
-from geometry_msgs.msg import Twist, TransformStamped
-from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Twist
 from std_msgs.msg import Float32
-from tf2_ros import TransformBroadcaster
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
-TICK_PER_M = 1.0 / 1.843e-4  # 标定: 891 ticks / 0.225m = 3961 tick/m
-# 校准值 (2026-07-17): 编码器 0.15 m/s × 1.5 s -> 平均 delta ≈ 891 ticks
-M_PER_TICK = 1.843e-4
+sys.path.insert(0, '/home/pi/patrol_robot')
+from Rosmaster_Lib import Rosmaster
 
-# ═══════════════════════════════════════════════
-#  运动补偿 (4 麦轮驱动 + 前 2×170mm 大轮阻力)
-# ═══════════════════════════════════════════════
-# 标定日期: 2026-07-17
-# wz: 有明显死区 (<0.5 rad/s 不转) + 增益损失 ~37%
-#   拟合: wz_cmd = 2.33 × wz_want + 0.4 (符号相同)
-# vx: 已接近线性 (0.2 m/s ≈ 100%), 略微增益
-# vy: 前 2 大轮抗侧移, 待标定, 暂设 1.5x + 0.15 死区
-def compensate_motion(vx, vy, wz):
-    """把用户目标速度 → STM32 需要的命令值"""
-    # vx: 线性 (0.15+ 基本 100%)
-    if abs(vx) < 0.02:
-        vx_cmd = 0.0
-    else:
-        vx_cmd = vx * 1.05  # 略微增益补摩擦
-    # vy: 侧移前拖轮阻力大, 死区 + 增益
-    if abs(vy) < 0.02:
-        vy_cmd = 0.0
-    else:
-        vy_cmd = math.copysign(1.5 * abs(vy) + 0.15, vy)
-    # wz: 死区 + 增益
-    if abs(wz) < 0.02:
-        wz_cmd = 0.0
-    else:
-        wz_cmd = math.copysign(2.33 * abs(wz) + 0.4, wz)
-    # 限幅 (X3 极限 vx/vy ±1.0, wz ±5.0)
-    vx_cmd = max(-1.0, min(1.0, vx_cmd))
-    vy_cmd = max(-1.0, min(1.0, vy_cmd))
-    wz_cmd = max(-5.0, min(5.0, wz_cmd))
-    return vx_cmd, vy_cmd, wz_cmd
+_qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
+                  history=HistoryPolicy.KEEP_LAST, depth=1)
 
 
 class CmdVelBridge(Node):
     def __init__(self):
-        super().__init__("cmd_vel_bridge")
+        super().__init__('cmd_vel_bridge')
+        
+        # 初始化底盘
+        self.bot = Rosmaster(car_type=1, com='/dev/myserial')
+        time.sleep(0.3)
+        
+        # 订阅 /cmd_vel (BEST_EFFORT 减少 DDS 流量)
+        self.sub = self.create_subscription(Twist, '/cmd_vel', self._on_cmd, _qos)
+        self.voltage_pub = self.create_publisher(Float32, '/patrol/voltage', 10)
+        
+        # 心跳 (20Hz)
+        self._last_cmd = (0.0, 0.0, 0.0)
+        self._last_time = time.time()
+        self._timeout = 0.5
+        self._hb = self.create_timer(0.05, self._heartbeat)
+        
+        # 状态统计 (1Hz)
+        self._recv_count = 0
+        self._stat = self.create_timer(1.0, self._stat_tick)
+        
+        self.get_logger().info('bridge ready | QoS=BEST_EFFORT | ROS_DOMAIN_ID=' + 
+            __import__('os').environ.get('ROS_DOMAIN_ID', '0'))
 
-        # 参数
-        self.declare_parameter("serial_port", "/dev/myserial")
-        self.declare_parameter("cmd_timeout", 0.5)
-        self.declare_parameter("heartbeat_hz", 10.0)
-        self.declare_parameter("odom_hz", 20.0)
-        self.declare_parameter("publish_tf", True)
-        self.declare_parameter("odom_frame", "odom")
-        self.declare_parameter("base_frame", "base_footprint")
-
-        self.serial_port = self.get_parameter("serial_port").value
-        self.cmd_timeout = self.get_parameter("cmd_timeout").value
-        self.heartbeat_hz = self.get_parameter("heartbeat_hz").value
-        self.odom_hz = self.get_parameter("odom_hz").value
-        self.publish_tf = self.get_parameter("publish_tf").value
-        self.odom_frame = self.get_parameter("odom_frame").value
-        self.base_frame = self.get_parameter("base_frame").value
-
-        # 打开 Rosmaster
-        from Rosmaster_Lib import Rosmaster
-        self.bot = Rosmaster(car_type=1, com=self.serial_port)
-        self.bot.set_car_type(1)  # 发送车型配置到 STM32
-        self.bot.create_receive_threading()
-        self.bot.set_auto_report_state(enable=True, forever=False)
-        time.sleep(1.0)
-        self.get_logger().info(f"Rosmaster 就绪 (port={self.serial_port})")
-
-        # 订阅
-        self.sub = self.create_subscription(Twist, "/cmd_vel", self._on_cmd_vel, 10)
-
-        # 发布
-        self.odom_pub = self.create_publisher(Odometry, "/odom", 10)
-        self.voltage_pub = self.create_publisher(Float32, "/patrol/voltage", 10)
-        self.tf_br = TransformBroadcaster(self)
-
-        # 状态
-        self._last_cmd = (0.0, 0.0, 0.0)     # vx, vy, wz
-        self._last_cmd_time = time.time()
-        self._stat_recv = 0
-        self._stat_hb = 0
-
-        # Odom 累积
-        self._x = 0.0
-        self._y = 0.0
-        self._th = 0.0
-        self._last_encoders = None
-        self._last_odom_time = time.time()
-        self._th_offset = None  # yaw 初始偏移
-        self._n_odom = 0
-
-        # 定时器
-        self.create_timer(1.0 / self.heartbeat_hz, self._heartbeat)
-        self.create_timer(1.0 / self.odom_hz, self._odom_tick)
-        self.create_timer(1.0, self._stat_log)
-
-    # ---------- cmd_vel ----------
-    def _on_cmd_vel(self, msg: Twist):
+    def _on_cmd(self, msg):
         self._last_cmd = (msg.linear.x, msg.linear.y, msg.angular.z)
-        self._last_cmd_time = time.time()
-        self._stat_recv += 1
+        self._last_time = time.time()
+        self._recv_count += 1
 
     def _heartbeat(self):
         vx, vy, wz = self._last_cmd
-        stopped = (time.time() - self._last_cmd_time) > self.cmd_timeout
-        if stopped:
+        if time.time() - self._last_time > self._timeout:
             vx = vy = wz = 0.0
-            self._last_cmd = (0.0, 0.0, 0.0)
-        # 应用运动补偿 (针对 4 麦轮 + 前 2×170mm 大轮阻力)
-        vx_cmd, vy_cmd, wz_cmd = vx, vy, wz  # compensate off
         try:
-            t0 = time.time()
-            self.bot.set_car_motion(vx_cmd, vy_cmd, wz_cmd)
-            dt = time.time() - t0
-            if dt > 0.05:
-                self.get_logger().warn(f"set_car_motion 耗时 {dt*1000:.1f}ms!", throttle_duration_sec=1)
-        except Exception as e:
-            self.get_logger().error(f"set_car_motion err: {e}", throttle_duration_sec=2)
-        self._stat_hb += 1
-
-    def _stat_log(self):
-        """每秒状态日志 + 电池电压发布"""
-        vx, vy, wz = self._last_cmd
-        stopped = (time.time() - self._last_cmd_time) > self.cmd_timeout
-        try:
-            enc_now = self.bot.get_motor_encoder()
-        except Exception:
-            enc_now = None
-        # 发布电池电压
-        try:
-            bat = self.bot.get_battery_voltage()
-            if bat and bat > 0.1:
-                self.voltage_pub.publish(Float32(data=float(bat)))
-        except Exception:
+            self.bot.set_car_motion(vx, vy, wz)
+        except:
             pass
+
+    def _stat_tick(self):
+        vx = self._last_cmd[0]
+        enc = self.bot.get_motor_encoder() if hasattr(self.bot, 'get_motor_encoder') else (0,0,0,0)
         self.get_logger().info(
-            f"stat: recv={self._stat_recv} hb={self._stat_hb} vx={vx:.2f} vy={vy:.2f} wz={wz:.2f} stopped={stopped} odom={self._n_odom} x={self._x:.2f} y={self._y:.2f} th={math.degrees(self._th):.0f}deg enc={enc_now}"
-        )
-        self._stat_recv = 0
-        self._stat_hb = 0
-        self._n_odom = 0
-
-    # ---------- odom ----------
-    def _odom_tick(self):
-        try:
-            enc = self.bot.get_motor_encoder()  # (m1, m2, m3, m4)
-            imu = self.bot.get_imu_attitude_data()  # (roll, pitch, yaw) 度
-            gyro = self.bot.get_gyroscope_data()  # (gx, gy, gz) rad/s
-        except Exception as e:
-            self.get_logger().error(f"read err: {e}", throttle_duration_sec=2)
-            return
-
-        if enc is None or len(enc) < 4:
-            return
-
-        now = time.time()
-        dt = now - self._last_odom_time
-        if dt <= 0:
-            return
-        self._last_odom_time = now
-
-        # 首次: 记初值
-        if self._last_encoders is None:
-            self._last_encoders = enc
-            if imu:
-                self._th_offset = math.radians(imu[2])
-            return
-
-        # 编码器差 (mecanum: 4轮平均前后运动)
-        # M1 前左, M2 后左, M3 前右, M4 后右
-        # 前进: 4 轮同符号增
-        # 侧移: 对角同符号
-        # 简化: 只用前后 (对 SLAM 建图够)
-        d_ticks = [enc[i] - self._last_encoders[i] for i in range(4)]
-        self._last_encoders = enc
-        # 平均 4 轮 = 前进距离
-        d_forward = sum(d_ticks) / 4.0 * M_PER_TICK
-
-        # yaw 用 IMU attitude (STM32 内部融合, 无累积漂移)
-        # 实测 gz 积分 30°/分钟 漂移太大, 弃用
-        if imu and self._th_offset is not None:
-            self._th = math.radians(imu[2]) - self._th_offset
-            # normalize
-            while self._th > math.pi: self._th -= 2 * math.pi
-            while self._th < -math.pi: self._th += 2 * math.pi
-
-        # 位置积分 (只考虑前进方向)
-        self._x += d_forward * math.cos(self._th)
-        self._y += d_forward * math.sin(self._th)
-
-        # 发布 Odometry
-        odom = Odometry()
-        odom.header.stamp = self.get_clock().now().to_msg()
-        odom.header.frame_id = self.odom_frame
-        odom.child_frame_id = self.base_frame
-        odom.pose.pose.position.x = self._x
-        odom.pose.pose.position.y = self._y
-        odom.pose.pose.position.z = 0.0
-        # yaw -> quaternion
-        cy = math.cos(self._th * 0.5)
-        sy = math.sin(self._th * 0.5)
-        odom.pose.pose.orientation.z = sy
-        odom.pose.pose.orientation.w = cy
-        odom.twist.twist.linear.x = d_forward / dt if dt > 0 else 0.0
-        vx_cmd, vy_cmd, wz_cmd = self._last_cmd
-        odom.twist.twist.angular.z = wz_cmd  # 用 cmd (真实需要陀螺仪差分)
-        self.odom_pub.publish(odom)
-
-        # 发布 tf (2 个: odom→base_footprint + base_footprint→laser_frame)
-        if self.publish_tf:
-            # TF 1: odom → base_footprint (动态, 里程计)
-            t1 = TransformStamped()
-            t1.header.stamp = odom.header.stamp
-            t1.header.frame_id = self.odom_frame
-            t1.child_frame_id = self.base_frame
-            t1.transform.translation.x = self._x
-            t1.transform.translation.y = self._y
-            t1.transform.translation.z = 0.0
-            t1.transform.rotation.z = sy
-            t1.transform.rotation.w = cy
-            self.tf_br.sendTransform(t1)
-
-            # TF 2: base_footprint → laser_frame (静态, 同时间戳)
-            # X3 激光安装位置: 前 0.044m, 高 0.11m (相对 base_link)
-            t2 = TransformStamped()
-            t2.header.stamp = odom.header.stamp
-            t2.header.frame_id = self.base_frame
-            t2.child_frame_id = "laser_frame"
-            t2.transform.translation.x = 0.044
-            t2.transform.translation.y = 0.0
-            t2.transform.translation.z = 0.185  # base_footprint→base_link(0.075)+base_link→laser(0.11)
-            t2.transform.rotation.x = 0.0
-            t2.transform.rotation.y = 0.0
-            t2.transform.rotation.z = 0.0
-            t2.transform.rotation.w = 1.0
-            self.tf_br.sendTransform(t2)
-
-        self._n_odom += 1
-
-    def destroy_node(self):
-        try:
-            self.bot.set_car_motion(0, 0, 0)
-            self.bot.set_auto_report_state(enable=False, forever=False)
-        except Exception:
-            pass
-        super().destroy_node()
+            f'recv={self._recv_count} vx={vx:.2f} enc=({enc[0]},{enc[1]},{enc[2]},{enc[3]})')
+        self._recv_count = 0
 
 
 def main():
     rclpy.init()
-    n = CmdVelBridge()
-    try:
-        rclpy.spin(n)
-    except KeyboardInterrupt:
-        pass
-    n.destroy_node()
-    rclpy.shutdown()
+    rclpy.spin(CmdVelBridge())
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
