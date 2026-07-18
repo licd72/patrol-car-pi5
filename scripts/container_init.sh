@@ -13,6 +13,19 @@ fuser -k /dev/video0 2>/dev/null; sleep 0.5
 source /opt/ros/foxy/setup.bash
 source /home/pi/patrol_robot/patrol_robot/install/setup.bash
 
+# # # === STM32 健康检查 ===
+echo "[check] 等待 STM32..."
+for i in $(seq 1 8); do
+    RAW=$(python3 -u -c "import sys,time; sys.path.insert(0,'/home/pi/patrol_robot'); from Rosmaster_Lib import Rosmaster; b=Rosmaster(car_type=1,com='/dev/myserial'); b.create_receive_threading(); time.sleep(0.3); b.set_auto_report_state(True); time.sleep(0.5); v=b.get_battery_voltage(); import os; print(v); os._exit(0)" 2>/dev/null)
+    BAT=$(echo "$RAW" | grep -oE '[0-9]+[.][0-9]+' | head -1)
+    if [ "$BAT" != "0.0" ] && [ -n "$BAT" ]; then
+        echo "[check] STM32 就绪: ${BAT}V"
+        break
+    fi
+    echo "[check] 等待 ($i/8)..."
+    sleep 3
+done
+
 echo "[bridge] 底盘桥(FIFO)..."
 ros2 run patrol_bridge cmd_vel_bridge > /tmp/cmd_vel_bridge.log 2>&1 &
 sleep 3
