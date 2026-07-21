@@ -1,0 +1,15 @@
+[Unit]
+Description=yahboom_oled start service
+After=multi-user.target
+
+[Service]
+Type=idle
+User=pi
+ExecStart=/bin/sh -c "python3 /home/pi/software/oled_yahboom/yahboom_oled.py"
+WorkingDirectory=/home/pi
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+

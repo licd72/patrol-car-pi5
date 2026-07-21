@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>🗺️ SLAM 建图控制台</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0f1923;
+  --panel: #1a2a3a;
+  --border: #2a3d52;
+  --text: #c8d6e5;
+  --text-dim: #6b8299;
+  --accent: #00d4aa;
+  --accent2: #4da6ff;
+  --danger: #ff5c5c;
+  --warn: #ffb347;
+  --radius: 12px;
+  --shadow: 0 4px 24px rgba(0,0,0,0.4);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  height: 100vh;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── 布局 ── */
+#app {
+  display: grid;
+  grid-template-rows: 56px 1fr auto;
+  grid-template-columns: 1fr 320px;
+  grid-template-areas:
+    "header header"
+    "map    sidebar"
+    "controls sidebar";
+  height: 100vh;
+  gap: 12px;
+  padding: 12px;
+}
+
+/* ── 顶部栏 ── */
+#header {
+  grid-area: header;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--panel);
+  border-radius: var(--radius);
+  padding: 0 20px;
+}
+#header h1 { font-size: 20px; font-weight: 600; }
+#header h1 span { color: var(--accent); }
+
+.status-badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 500;
+}
+.status-idle { background: #1e3a2f; color: #4ade80; }
+.status-running { background: #1e2e3a; color: #60a5fa; }
+.status-starting, .status-stopping { background: #3a3510; color: var(--warn); }
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+}
+.status-idle .status-dot { background: #4ade80; }
+.status-running .status-dot { background: #60a5fa; animation: pulse 1.5s infinite; }
+.status-starting .status-dot, .status-stopping .status-dot { background: var(--warn); animation: pulse 0.8s infinite; }
+
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+/* ── 地图区域 ── */
+#map-area {
+  grid-area: map;
+  background: var(--panel);
+  border-radius: var(--radius);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+}
+#map-placeholder {
+  text-align: center;
+  color: var(--text-dim);
+}
+#map-placeholder .icon { font-size: 64px; margin-bottom: 12px; }
+#map-placeholder .hint { font-size: 14px; margin-top: 4px; }
+#map-canvas {
+  max-width: 100%; max-height: 100%; object-fit: contain;
+  border-radius: 8px;
+}
+#map-canvas-container {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+}
+#map-canvas {
+  max-width: none; max-height: none;
+  cursor: grab;
+  transition: transform 0.1s ease-out;
+}
+#map-canvas:active { cursor: grabbing; }
+
+/* 缩放控制按钮 */
+.zoom-controls {
+  position: absolute;
+  bottom: 16px; right: 16px;
+  display: flex; flex-direction: column; gap: 8px;
+  z-index: 10;
+}
+.zoom-btn {
+  width: 40px; height: 40px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: rgba(0,0,0,0.6);
+  color: var(--text);
+  font-size: 20px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s;
+}
+.zoom-btn:hover { background: var(--accent); color: #000; }
+.zoom-level {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: rgba(0,0,0,0.6);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+#map-overlay {
+  position: absolute; top: 12px; right: 12px;
+  background: rgba(0,0,0,0.6); border-radius: 8px;
+  padding: 6px 12px; font-size: 11px; color: var(--text-dim);
+}
+
+/* ── 侧边栏 ── */
+#sidebar {
+  grid-area: sidebar;
+  background: var(--panel);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+.side-section { 
+  background: rgba(255,255,255,0.03); border-radius: 10px; padding: 14px;
+}
+.side-section h3 {
+  font-size: 13px; font-weight: 600; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px;
+}
+.info-row {
+  display: flex; justify-content: space-between; padding: 4px 0;
+  font-size: 13px;
+}
+.info-row .label { color: var(--text-dim); }
+.info-row .value { font-weight: 500; font-variant-numeric: tabular-nums; }
+
+/* ── 操作按钮 ── */
+.btn-row { display: flex; gap: 8px; }
+.btn {
+  flex: 1; padding: 12px 8px; border: none; border-radius: 8px;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: all 0.2s; display: flex; align-items: center;
+  justify-content: center; gap: 6px;
+}
+.btn:hover { transform: translateY(-1px); filter: brightness(1.1); }
+.btn:active { transform: scale(0.97); }
+.btn-start { background: var(--accent); color: #000; }
+.btn-stop { background: var(--danger); color: #fff; }
+.btn-save { background: var(--accent2); color: #fff; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; filter: none; }
+
+/* ── 方向键 D-Pad ── */
+#controls {
+  grid-area: controls;
+  background: var(--panel);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 12px 24px;
+}
+.dpad {
+  display: grid;
+  grid-template-areas:
+    ".      up     ."
+    "left  center right"
+    ".     down    .";
+  grid-template-columns: 72px 72px 72px;
+  grid-template-rows: 72px 72px 72px;
+  gap: 6px;
+}
+.dpad-btn {
+  border: 2px solid var(--border);
+  background: rgba(255,255,255,0.04);
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+  font-size: 24px;
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.dpad-btn:active, .dpad-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #000;
+  transform: scale(0.93);
+}
+.dpad-up { grid-area: up; }
+.dpad-down { grid-area: down; }
+.dpad-left { grid-area: left; }
+.dpad-right { grid-area: right; }
+.dpad-center { grid-area: center; font-size: 16px; border-radius: 50%; }
+
+/* 速度滑块 */
+.speed-panel {
+  display: flex; flex-direction: column; gap: 8px;
+}
+.speed-label { font-size: 11px; color: var(--text-dim); text-align: center; }
+.speed-slider {
+  -webkit-appearance: none; width: 120px; height: 6px;
+  border-radius: 3px; background: var(--border); outline: none;
+}
+.speed-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 24px; height: 24px;
+  border-radius: 50%; background: var(--accent); cursor: pointer;
+}
+.speed-val {
+  text-align: center; font-size: 14px; font-weight: 600; color: var(--accent);
+}
+
+/* ── 日志区 ── */
+#log-box {
+  max-height: 160px; overflow-y: auto; font-size: 12px; color: var(--text-dim);
+  line-height: 1.6;
+}
+
+/* ── 保存弹窗 ── */
+.modal-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  align-items: center; justify-content: center; z-index: 100;
+}
+.modal-overlay.show { display: flex; }
+.modal-box {
+  background: var(--panel); border-radius: var(--radius); padding: 24px;
+  width: 320px; display: flex; flex-direction: column; gap: 14px;
+}
+.modal-box h3 { font-size: 16px; }
+.modal-input {
+  padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border);
+  background: rgba(255,255,255,0.06); color: var(--text); font-size: 14px;
+  outline: none;
+}
+.modal-input:focus { border-color: var(--accent); }
+
+/* ── 响应式 ── */
+@media (max-width: 768px) {
+  #app {
+    grid-template-rows: 48px 1fr auto auto;
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "header" "map" "controls" "sidebar";
+    gap: 8px; padding: 8px;
+  }
+  #sidebar { max-height: 200px; flex-shrink: 0; }
+  #controls { padding: 8px; gap: 12px; }
+  .dpad { grid-template-columns: 56px 56px 56px; grid-template-rows: 56px 56px 56px; }
+  .dpad-btn { font-size: 18px; }
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- 顶部栏 -->
+  <div id="header">
+    <h1>🗺️ <span>SLAM</span> 建图控制台</h1>
+    <div>
+      <span id="status-badge" class="status-badge status-idle">
+        <span class="status-dot"></span>
+        <span id="status-text">待命中</span>
+      </span>
+    </div>
+  </div>
+
+  <!-- 地图区域 -->
+  <div id="map-area">
+    <div id="map-placeholder">
+      <div class="icon">🗺️</div>
+      <div>点击「开始建图」启动 SLAM</div>
+      <div class="hint">地图将在此实时显示</div>
+    </div>
+    <div id="map-canvas-container">
+      <img id="map-canvas" style="display:none" alt="SLAM Map">
+    </div>
+    <div id="map-overlay"><span id="map-info-text"></span></div>
+    <!-- 缩放控制 -->
+    <div class="zoom-controls">
+      <button class="zoom-btn" id="zoom-in" title="放大">+</button>
+      <div class="zoom-level" id="zoom-level">100%</div>
+      <button class="zoom-btn" id="zoom-out" title="缩小">−</button>
+      <button class="zoom-btn" id="zoom-reset" title="重置">⌂</button>
+    </div>
+  </div>
+
+  <!-- 侧边栏 -->
+  <div id="sidebar">
+    <div class="side-section">
+      <h3>⚙️ 操作</h3>
+      <div class="btn-row" style="margin-bottom:8px">
+        <button class="btn btn-start" id="btn-start" onclick="startSlam()">
+          ▶ 开始建图
+        </button>
+        <button class="btn btn-stop" id="btn-stop" onclick="stopSlam()" disabled>
+          ⬛ 停止
+        </button>
+      </div>
+      <button class="btn btn-save" id="btn-save" onclick="showSaveModal()" disabled style="width:100%">
+        💾 保存地图
+      </button>
+      <button class="btn" id="btn-restore" onclick="restorePatrol()" style="width:100%;margin-top:8px;background:var(--warn);color:#000;">
+        🔄 恢复巡逻
+      </button>
+    </div>
+
+    <div class="side-section">
+      <h3>📍 位姿</h3>
+      <div class="info-row"><span class="label">X</span><span class="value" id="pose-x">—</span></div>
+      <div class="info-row"><span class="label">Y</span><span class="value" id="pose-y">—</span></div>
+      <div class="info-row"><span class="label">θ</span><span class="value" id="pose-t">—</span></div>
+    </div>
+
+    <div class="side-section">
+      <h3>🗂️ 地图信息</h3>
+      <div class="info-row"><span class="label">尺寸</span><span class="value" id="map-size">—</span></div>
+      <div class="info-row"><span class="label">分辨率</span><span class="value" id="map-res">—</span></div>
+      <div class="info-row"><span class="label">已保存</span><span class="value" id="map-count">0</span></div>
+    </div>
+
+    <div class="side-section">
+      <h3>📷 实时画面</h3>
+      <div style="background:#000;border-radius:8px;overflow:hidden;">
+        <img id="cam-feed" src="" style="width:100%;display:block;" alt="camera">
+      </div>
+    </div>
+
+    <div class=\"side-section\">
+      <h3>📋 日志</h3>
+      <div id="log-box"></div>
+    </div>
+  </div>
+
+  <!-- 方向键控制区 -->
+  <div id="controls">
+    <div class="dpad">
+      <button class="dpad-btn dpad-up"    data-dir="forward"     id="btn-up">▲</button>
+      <button class="dpad-btn dpad-left"  data-dir="left"        id="btn-left">◀</button>
+      <button class="dpad-btn dpad-center" data-dir="stop"       id="btn-center">⏹</button>
+      <button class="dpad-btn dpad-right" data-dir="right"       id="btn-right">▶</button>
+      <button class="dpad-btn dpad-down"  data-dir="backward"    id="btn-down">▼</button>
+    </div>
+    <div class="dpad">
+      <button class="dpad-btn dpad-up"    data-dir="forward"     style="visibility:hidden"></button>
+      <button class="dpad-btn dpad-left"  data-dir="left_strafe" id="btn-ls">⬅</button>
+      <button class="dpad-btn dpad-center" style="visibility:hidden"></button>
+      <button class="dpad-btn dpad-right" data-dir="right_strafe" id="btn-rs">➡</button>
+      <button class="dpad-btn dpad-down"  data-dir="backward"    style="visibility:hidden"></button>
+    </div>
+    <div class="speed-panel">
+      <span class="speed-label">速度</span>
+      <input type="range" class="speed-slider" id="speed-slider" min="0.05" max="0.5" step="0.05" value="0.2">
+      <span class="speed-val" id="speed-val">0.20 m/s</span>
+    </div>
+  </div>
+</div>
+
+<!-- 保存弹窗 -->
+<div class="modal-overlay" id="save-modal">
+  <div class="modal-box">
+    <h3>💾 保存地图</h3>
+    <input class="modal-input" id="map-name-input" placeholder="输入地图名称 (可选)" autocomplete="off">
+    <div class="btn-row">
+      <button class="btn btn-save" onclick="saveMap()">确认保存</button>
+      <button class="btn" style="background:var(--border)" onclick="hideSaveModal()">取消</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═════════════════════════════════════════════════
+//  状态
+// ═════════════════════════════════════════════════
+let slamStatus = 'idle';
+let pollTimer = null;
+let mapTimer = null;
+let cmdTimer = null;
+
+// ═════════════════════════════════════════════════
+//  方向键控制 (支持长按)
+// ═════════════════════════════════════════════════
+const dpadBtns = document.querySelectorAll('.dpad-btn[data-dir]');
+let activeDir = null;
+let cmdInterval = null;
+
+function getSpeed() {
+  return parseFloat(document.getElementById('speed-slider').value);
+}
+
+function sendCmd(dir) {
+  fetch('/api/control', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      direction: dir,
+      speed: getSpeed(),
+      duration: dir === 'left' || dir === 'right' ? 1.5 : 0.5
+    })
+  });
+}
+
+dpadBtns.forEach(btn => {
+  btn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    const dir = btn.dataset.dir;
+    if (dir === 'stop') { sendCmd('stop'); return; }
+    activeDir = dir;
+    btn.classList.add('active');
+    sendCmd(dir);
+    cmdInterval = setInterval(() => sendCmd(dir), 250);
+  });
+
+  btn.addEventListener('pointerup', (e) => {
+    e.preventDefault();
+    btn.classList.remove('active');
+    if (activeDir === btn.dataset.dir) {
+      activeDir = null;
+      clearInterval(cmdInterval);
+      sendCmd('stop');
+    }
+  });
+
+  btn.addEventListener('pointerleave', (e) => {
+    btn.classList.remove('active');
+    if (activeDir === btn.dataset.dir) {
+      activeDir = null;
+      clearInterval(cmdInterval);
+      sendCmd('stop');
+    }
+  });
+
+  // 阻止右键菜单
+  btn.addEventListener('contextmenu', e => e.preventDefault());
+});
+
+// 键盘控制
+document.addEventListener('keydown', (e) => {
+  const map = {
+    'ArrowUp': 'forward', 'ArrowDown': 'backward',
+    'ArrowLeft': 'left', 'ArrowRight': 'right',
+    'w': 'forward', 's': 'backward', 'a': 'left', 'd': 'right',
+    'q': 'left_strafe', 'e': 'right_strafe'
+  };
+  const dir = map[e.key];
+  if (dir && !activeDir) {
+    e.preventDefault();
+    activeDir = dir;
+    document.querySelector(`[data-dir="${dir}"]`)?.classList.add('active');
+    sendCmd(dir);
+    cmdInterval = setInterval(() => sendCmd(dir), 250);
+  }
+});
+
+document.addEventListener('keyup', (e) => {
+  const map = {
+    'ArrowUp': 'forward', 'ArrowDown': 'backward',
+    'ArrowLeft': 'left', 'ArrowRight': 'right',
+    'w': 'forward', 's': 'backward', 'a': 'left', 'd': 'right',
+    'q': 'left_strafe', 'e': 'right_strafe'
+  };
+  const dir = map[e.key];
+  if (dir && activeDir === dir) {
+    activeDir = null;
+    clearInterval(cmdInterval);
+    sendCmd('stop');
+    document.querySelectorAll('.dpad-btn.active').forEach(b => b.classList.remove('active'));
+  }
+});
+
+// 速度滑块
+document.getElementById('speed-slider').addEventListener('input', function() {
+  document.getElementById('speed-val').textContent = parseFloat(this.value).toFixed(2) + ' m/s';
+});
+
+// ═════════════════════════════════════════════════
+//  SLAM 控制
+// ═════════════════════════════════════════════════
+async function startSlam() {
+  const btn = document.getElementById('btn-start');
+  btn.disabled = true;
+  btn.textContent = '⏳ 启动中...';
+  try {
+    const r = await fetch('/api/slam/start', {method: 'POST'});
+    const d = await r.json();
+    updateStatus(d.ok ? 'starting' : 'idle');
+  } catch(e) {
+    updateStatus('idle');
+  }
+  btn.disabled = false;
+  btn.textContent = '▶ 开始建图';
+}
+
+async function stopSlam() {
+  const btn = document.getElementById('btn-stop');
+  btn.disabled = true;
+  btn.textContent = '⏳ 停止中...';
+  try {
+    const r = await fetch('/api/slam/stop', {method: 'POST'});
+    const d = await r.json();
+    updateStatus('idle');
+  } catch(e) {}
+  btn.disabled = false;
+  btn.textContent = '⬛ 停止';
+}
+
+async function restorePatrol() {
+  const btn = document.getElementById('btn-restore');
+  btn.disabled = true;
+  btn.textContent = '⏳ 恢复中...';
+  try {
+    const r = await fetch('/api/patrol/restore', {method: 'POST'});
+    const d = await r.json();
+    addLogLine(d.ok ? '✅ ' + d.msg : '❌ ' + (d.msg||'失败'));
+  } catch(e) {
+    addLogLine('❌ 恢复请求失败');
+  }
+  btn.disabled = false;
+  btn.textContent = '🔄 恢复巡逻';
+}
+
+async function saveMap() {
+  const name = document.getElementById('map-name-input').value.trim();
+  try {
+    const r = await fetch('/api/save_map', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: name || undefined})
+    });
+    const d = await r.json();
+    if (d.ok) {
+      addLogLine('💾 地图已保存: ' + d.name);
+    } else {
+      addLogLine('❌ 保存失败: ' + (d.msg || 'unknown'));
+    }
+  } catch(e) {
+    addLogLine('❌ 保存请求失败');
+  }
+  hideSaveModal();
+}
+
+function showSaveModal() {
+  document.getElementById('save-modal').classList.add('show');
+  document.getElementById('map-name-input').focus();
+}
+function hideSaveModal() {
+  document.getElementById('save-modal').classList.remove('show');
+}
+document.getElementById('save-modal').addEventListener('click', function(e) {
+  if (e.target === this) hideSaveModal();
+});
+
+// ═════════════════════════════════════════════════
+//  地图缩放和平移
+// ═════════════════════════════════════════════════
+let mapScale = 1.0;
+let mapTranslateX = 0;
+let mapTranslateY = 0;
+let isDragging = false;
+let dragStartX = 0;
+let dragStartY = 0;
+let mapImage = null;
+
+function updateMapTransform() {
+  const canvas = document.getElementById('map-canvas');
+  canvas.style.transform = `translate(${mapTranslateX}px, ${mapTranslateY}px) scale(${mapScale})`;
+  document.getElementById('zoom-level').textContent = Math.round(mapScale * 100) + '%';
+}
+
+function zoomIn() {
+  mapScale = Math.min(mapScale * 1.2, 5.0);
+  updateMapTransform();
+}
+
+function zoomOut() {
+  mapScale = Math.max(mapScale / 1.2, 0.2);
+  updateMapTransform();
+}
+
+function zoomReset() {
+  mapScale = 1.0;
+  mapTranslateX = 0;
+  mapTranslateY = 0;
+  updateMapTransform();
+}
+
+// 滚轮缩放
+document.getElementById('map-canvas-container').addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? 0.9 : 1.1;
+  mapScale = Math.min(Math.max(mapScale * delta, 0.2), 5.0);
+  updateMapTransform();
+});
+
+// 拖拽平移
+const mapCanvas = document.getElementById('map-canvas');
+mapCanvas.addEventListener('mousedown', (e) => {
+  isDragging = true;
+  dragStartX = e.clientX - mapTranslateX;
+  dragStartY = e.clientY - mapTranslateY;
+  mapCanvas.style.cursor = 'grabbing';
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!isDragging) return;
+  mapTranslateX = e.clientX - dragStartX;
+  mapTranslateY = e.clientY - dragStartY;
+  updateMapTransform();
+});
+
+document.addEventListener('mouseup', () => {
+  isDragging = false;
+  mapCanvas.style.cursor = 'grab';
+});
+
+// 触摸支持
+mapCanvas.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 1) {
+    isDragging = true;
+    dragStartX = e.touches[0].clientX - mapTranslateX;
+    dragStartY = e.touches[0].clientY - mapTranslateY;
+  }
+});
+
+mapCanvas.addEventListener('touchmove', (e) => {
+  if (!isDragging || e.touches.length !== 1) return;
+  e.preventDefault();
+  mapTranslateX = e.touches[0].clientX - dragStartX;
+  mapTranslateY = e.touches[0].clientY - dragStartY;
+  updateMapTransform();
+});
+
+mapCanvas.addEventListener('touchend', () => {
+  isDragging = false;
+});
+
+// 绑定按钮事件
+document.getElementById('zoom-in').addEventListener('click', zoomIn);
+document.getElementById('zoom-out').addEventListener('click', zoomOut);
+document.getElementById('zoom-reset').addEventListener('click', zoomReset);
+
+// ═════════════════════════════════════════════════
+//  状态轮询
+// ═════════════════════════════════════════════════
+async function pollStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    updateStatus(d.slam_status);
+    updatePose(d.pose);
+    document.getElementById('log-box').innerHTML = (d.log || [])
+      .map(l => `<div>${l}</div>`).join('');
+    document.getElementById('map-count').textContent = d.map_count || 0;
+  } catch(e) {}
+}
+
+async function pollMap() {
+  try {
+    const r = await fetch('/api/map');
+    const d = await r.json();
+    const canvas = document.getElementById('map-canvas');
+    const placeholder = document.getElementById('map-placeholder');
+
+    if (d.b64) {
+      canvas.src = 'data:image/png;base64,' + d.b64;
+      canvas.style.display = 'block';
+      placeholder.style.display = 'none';
+      const info = d.info;
+      document.getElementById('map-info-text').textContent =
+        `${info.width}×${info.height} | ${(info.resolution*100).toFixed(0)}cm/px`;
+      document.getElementById('map-size').textContent = `${info.width}×${info.height}`;
+      document.getElementById('map-res').textContent = `${(info.resolution*100).toFixed(0)} cm/px`;
+      
+      // 首次加载地图时重置缩放
+      if (!mapImage) {
+        mapImage = true;
+        zoomReset();
+      }
+    } else if (slamStatus === 'idle') {
+      canvas.style.display = 'none';
+      placeholder.style.display = 'block';
+      mapImage = null;
+    }
+  } catch(e) {}
+}
+
+function updateStatus(status) {
+  slamStatus = status;
+  const badge = document.getElementById('status-badge');
+  const text = document.getElementById('status-text');
+  const btnStart = document.getElementById('btn-start');
+  const btnStop = document.getElementById('btn-stop');
+  const btnSave = document.getElementById('btn-save');
+
+  badge.className = 'status-badge';
+  switch(status) {
+    case 'idle':
+      badge.classList.add('status-idle'); text.textContent = '待命中';
+      btnStart.disabled = false; btnStop.disabled = true; btnSave.disabled = true;
+      break;
+    case 'starting':
+      badge.classList.add('status-starting'); text.textContent = '启动中...';
+      btnStart.disabled = true; btnStop.disabled = false; btnSave.disabled = true;
+      break;
+    case 'running':
+      badge.classList.add('status-running'); text.textContent = '建图中';
+      btnStart.disabled = true; btnStop.disabled = false; btnSave.disabled = false;
+      break;
+    case 'stopping':
+      badge.classList.add('status-stopping'); text.textContent = '停止中...';
+      btnStart.disabled = true; btnStop.disabled = true; btnSave.disabled = true;
+      break;
+  }
+}
+
+function updatePose(pose) {
+  document.getElementById('pose-x').textContent = (pose.x || 0).toFixed(2) + ' m';
+  document.getElementById('pose-y').textContent = (pose.y || 0).toFixed(2) + ' m';
+  document.getElementById('pose-t').textContent = ((pose.theta || 0) * 180 / Math.PI).toFixed(0) + '°';
+}
+
+function addLogLine(line) {
+  const box = document.getElementById('log-box');
+  box.innerHTML += `<div>${line}</div>`;
+  box.scrollTop = box.scrollHeight;
+}
+
+// ═════════════════════════════════════════════════
+//  启动
+// ═════════════════════════════════════════════════
+pollStatus();
+pollTimer = setInterval(pollStatus, 2000);
+mapTimer = setInterval(pollMap, 1500);
+camTimer = setInterval(pollCamera, 200);
+
+// 摄像头轮询
+async function pollCamera() {
+  try {
+    const r = await fetch('/api/camera');
+    const d = await r.json();
+    if (d.ok && d.jpeg) {
+      document.getElementById('cam-feed').src = 'data:image/jpeg;base64,' + d.jpeg;
+    }
+  } catch(e) {}
+}
+
+// 页面关闭时停止小车
+window.addEventListener('beforeunload', () => {
+  navigator.sendBeacon('/api/control', JSON.stringify({direction:'stop',speed:0,duration:0}));
+});
+</script>
+
+</body>
+</html>

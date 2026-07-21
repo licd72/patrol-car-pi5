@@ -16,6 +16,7 @@ services:
       - /home/pi/patrol_robot:/home/pi/patrol_robot
       - /dev:/dev
       - /tmp:/tmp
+      - /var/run/docker.sock:/var/run/docker.sock
     devices:
       - /dev/myserial:/dev/myserial
       - /dev/rplidar:/dev/rplidar

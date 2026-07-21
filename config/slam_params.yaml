@@ -1,15 +1,12 @@
 # slam_toolbox online_async 参数 - 实时建图
-# RPi5 + YDLIDAR X4 (10Hz, 128000bps) | ROS2 Foxy
+# RPi5 + YDLIDAR X4 | ROS2 Humble (slam_nav容器)
 
 slam_toolbox:
   ros__parameters:
     solver_plugin: solver_plugins::CeresSolver
+    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
+    ceres_preconditioner: SCHUR_JACOBI
     mode: mapping
-
-    # 地图
-    resolution: 0.05
-    max_laser_range: 8.0
-    minimum_time_interval: 0.5
 
     # 坐标系
     map_frame: map
@@ -17,6 +14,21 @@ slam_toolbox:
     base_frame: base_footprint
     scan_topic: /scan
     odom_topic: /odom
+    use_sim_time: false
+
+    # 地图
+    resolution: 0.05
+    max_laser_range: 8.0
+    map_update_interval: 2.0
+
+    # TF 容忍度 (跨容器DDS延迟大, 需要放宽)
+    transform_timeout: 5.0
+    transform_tolerance: 5.0
+    tf_buffer_duration: 30.0
+
+    # 扫描处理
+    minimum_time_interval: 0.5
+    throttle_scans: 1
 
     # 里程计
     use_odometry: true
@@ -34,13 +46,6 @@ slam_toolbox:
 
     # 发布
     transform_publish_period: 0.05
-    map_update_interval: 1.0
-    publish_map_scan: true
-    throttle_scans: 1
-
-    # Ceres 优化器
-    ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
-    ceres_preconditioner: SCHUR_JACOBI
-    ceres_trust_strategy: LEVENBERG_MARQUARDT
+    publish_map_scan: false
 
     debug_logging: false
